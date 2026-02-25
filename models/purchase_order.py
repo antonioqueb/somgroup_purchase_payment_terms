@@ -188,7 +188,10 @@ class PurchaseOrder(models.Model):
 
     def _recalculate_payment_schedule(self):
         self.ensure_one()
-        pending = self.payment_schedule_ids.filtered(lambda l: l.state == 'pending')
+        # Solo borramos los pending que NO tengan pagos vinculados
+        pending = self.payment_schedule_ids.filtered(
+            lambda l: l.state == 'pending' and not l.payment_ids
+        )
         pending.unlink()
 
         lines = self.payment_term_id.compute_due_dates(self)
@@ -266,20 +269,45 @@ class PurchasePaymentSchedule(models.Model):
     due_date = fields.Date(string='Fecha Vencimiento')
     note = fields.Char(string='Nota Operativa')
     is_manual = fields.Boolean(string='Programación Manual', default=False)
+
+    # ── Relación con pagos contables reales ──────────────────────────────────
+    payment_ids = fields.One2many(
+        'account.payment',
+        'purchase_schedule_id',
+        string='Pagos Contables',
+        readonly=True,
+    )
+
+    # ── Estado y montos calculados desde contabilidad ────────────────────────
     state = fields.Selection([
         ('pending', 'Pendiente'),
+        ('partial', 'Pago Parcial'),
         ('paid', 'Pagado'),
         ('overdue', 'Vencido'),
-    ], string='Estado', default='pending', tracking=True)
-    paid_date = fields.Date(string='Fecha Pago Real')
-    paid_amount = fields.Monetary(string='Monto Pagado', currency_field='currency_id')
+    ], string='Estado', compute='_compute_state_from_accounting', store=True, tracking=True)
+
+    paid_amount = fields.Monetary(
+        string='Monto Pagado',
+        compute='_compute_paid_amounts',
+        store=True,
+        currency_field='currency_id',
+    )
     remaining_amount = fields.Monetary(
         string='Saldo Pendiente',
         compute='_compute_remaining',
         store=True,
-        currency_field='currency_id'
+        currency_field='currency_id',
+    )
+
+    # ── Campos informativos (aún editables para registro manual si se desea) ──
+    paid_date = fields.Date(
+        string='Fecha Pago Real',
+        compute='_compute_paid_date',
+        store=True,
+        readonly=False,
     )
     payment_reference = fields.Char(string='Referencia Pago / SPEI')
+
     days_until_due = fields.Integer(
         string='Días para Vencer',
         compute='_compute_days_until_due',
@@ -291,10 +319,42 @@ class PurchasePaymentSchedule(models.Model):
         store=False,
     )
 
+    # ─── Computes ─────────────────────────────────────────────────────────────
+
+    @api.depends('payment_ids', 'payment_ids.state', 'payment_ids.amount')
+    def _compute_paid_amounts(self):
+        for rec in self:
+            posted = rec.payment_ids.filtered(lambda p: p.state == 'posted')
+            rec.paid_amount = sum(posted.mapped('amount'))
+
     @api.depends('amount', 'paid_amount')
     def _compute_remaining(self):
         for rec in self:
-            rec.remaining_amount = (rec.amount or 0.0) - (rec.paid_amount or 0.0)
+            rec.remaining_amount = max(0.0, (rec.amount or 0.0) - (rec.paid_amount or 0.0))
+
+    @api.depends('payment_ids', 'payment_ids.state', 'payment_ids.date')
+    def _compute_paid_date(self):
+        for rec in self:
+            posted = rec.payment_ids.filtered(lambda p: p.state == 'posted').sorted('date')
+            if posted:
+                rec.paid_date = posted[-1].date
+            # Si no hay pagos contables, no sobreescribir el valor manual
+            elif not rec.paid_date:
+                rec.paid_date = False
+
+    @api.depends('paid_amount', 'amount', 'due_date')
+    def _compute_state_from_accounting(self):
+        from datetime import date
+        today = date.today()
+        for rec in self:
+            if rec.paid_amount and rec.paid_amount >= rec.amount:
+                rec.state = 'paid'
+            elif rec.paid_amount and rec.paid_amount > 0:
+                rec.state = 'partial'
+            elif rec.due_date and rec.due_date < today:
+                rec.state = 'overdue'
+            else:
+                rec.state = 'pending'
 
     @api.depends('due_date', 'state')
     def _compute_days_until_due(self):
@@ -317,22 +377,77 @@ class PurchasePaymentSchedule(models.Model):
                 rec.days_until_due = 0
                 rec.alert_color = 'blue'
 
+    # ─── Método de recálculo llamado desde account.payment ───────────────────
+
+    def _recompute_from_payments(self):
+        """Forzar recompute de montos y estado desde los pagos contables."""
+        self._compute_paid_amounts()
+        self._compute_remaining()
+        self._compute_paid_date()
+        self._compute_state_from_accounting()
+
+    # ─── Acción: Abrir formulario de pago contable pre-llenado ───────────────
+
+    def action_register_payment(self):
+        self.ensure_one()
+        if self.state == 'paid':
+            raise UserError(_('Este hito ya está completamente pagado.'))
+
+        return {
+            'name': _('Registrar Pago al Proveedor'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.payment',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_payment_type': 'outbound',
+                'default_partner_type': 'supplier',
+                'default_partner_id': self.order_id.partner_id.id,
+                'default_amount': self.remaining_amount or self.amount,
+                'default_currency_id': self.currency_id.id,
+                'default_purchase_schedule_id': self.id,
+                'default_date': fields.Date.today(),
+                'default_ref': '{} - {} ({})'.format(
+                    self.order_id.name,
+                    dict(self._fields['payment_type'].selection).get(self.payment_type, ''),
+                    self.percent,
+                ),
+            },
+        }
+
+    # ─── Acción legacy: Marcar pagado manualmente (sin contabilidad) ──────────
+
     def action_mark_paid(self):
+        """Mantener para registros manuales sin integración contable."""
         from datetime import date
         for rec in self:
-            rec.write({
-                'state': 'paid',
-                'paid_date': rec.paid_date or date.today(),
-                'paid_amount': rec.paid_amount or rec.amount,
-            })
+            if rec.state != 'paid':
+                rec.write({
+                    'paid_date': rec.paid_date or date.today(),
+                })
+                # Si no hay pagos contables, forzar state directamente
+                if not rec.payment_ids:
+                    rec.write({'paid_amount': rec.amount})
 
     def action_mark_overdue(self):
         from datetime import date
         today = date.today()
         pending = self.search([
-            ('state', '=', 'pending'),
+            ('state', 'in', ['pending', 'partial']),
             ('due_date', '<', today),
             ('due_date', '!=', False),
         ])
-        pending.write({'state': 'overdue'})
+        pending._compute_state_from_accounting()
         return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+    # ─── Smart button: ver pagos vinculados ──────────────────────────────────
+
+    def action_view_payments(self):
+        self.ensure_one()
+        return {
+            'name': _('Pagos Contables'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.payment',
+            'view_mode': 'list,form',
+            'domain': [('purchase_schedule_id', '=', self.id)],
+        }

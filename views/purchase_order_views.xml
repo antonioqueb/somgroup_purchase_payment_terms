@@ -15,7 +15,7 @@
             </xpath>
 
             <!-- Bloque BL/ETA debajo de payment_term_id -->
-                <xpath expr="//field[@name='payment_term_id']/.." position="after">         
+                <xpath expr="//field[@name='payment_term_id']/.." position="after">
                 <!-- Aviso de pago (alerta dinámica) -->
                 <div class="alert alert-warning mb-3"
                      invisible="not payment_schedule_warning">
@@ -78,7 +78,7 @@
                         <list editable="bottom"
                               decoration-danger="state == 'overdue'"
                               decoration-success="state == 'paid'"
-                              decoration-warning="state == 'pending'">
+                              decoration-warning="state in ('pending', 'partial')">
                             <field name="payment_type"      string="Tipo de Pago"/>
                             <field name="percent"           string="% Porcentaje"/>
                             <field name="amount"            string="Monto"/>
@@ -88,19 +88,26 @@
                             <field name="state" widget="badge"
                                    string="Estado"
                                    decoration-success="state == 'paid'"
+                                   decoration-info="state == 'partial'"
                                    decoration-danger="state == 'overdue'"
                                    decoration-warning="state == 'pending'"/>
-                            <field name="paid_date"         optional="hide" string="Fecha Pago"/>
-                            <field name="paid_amount"       optional="hide" string="Monto Pagado"/>
-                            <field name="remaining_amount"  optional="hide" string="Saldo" readonly="1"/>
+                            <field name="paid_date"         optional="show" string="Fecha Pago"/>
+                            <field name="paid_amount"       optional="show" string="Monto Pagado" readonly="1"/>
+                            <field name="remaining_amount"  optional="show" string="Saldo" readonly="1"/>
                             <field name="payment_reference" string="Referencia"/>
                             <field name="is_manual" widget="boolean" string="Manual"/>
                             <field name="note"              string="Nota"/>
-                            <button name="action_mark_paid"
-                                    string="✓ Pagar"
+                            <button name="action_register_payment"
+                                    string="💵 Pagar"
                                     type="object"
                                     class="btn btn-sm btn-success"
                                     invisible="state == 'paid'"/>
+                            <button name="action_view_payments"
+                                    string="Ver Pagos"
+                                    type="object"
+                                    class="btn btn-sm btn-secondary"
+                                    invisible="not payment_ids"/>
+                            <field name="payment_ids"       column_invisible="1"/>
                         </list>
                     </field>
 
@@ -161,15 +168,30 @@
         <field name="arch" type="xml">
             <form string="Pago Programado">
                 <header>
-                    <button name="action_mark_paid"
-                            string="✓ Marcar como Pagado"
+                    <button name="action_register_payment"
+                            string="💵 Registrar Pago Contable"
                             type="object"
                             class="btn-primary"
                             invisible="state == 'paid'"/>
+                    <button name="action_mark_paid"
+                            string="✓ Marcar Pagado (Manual)"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state == 'paid'"/>
                     <field name="state" widget="statusbar"
-                           statusbar_visible="pending,paid"/>
+                           statusbar_visible="pending,partial,paid"/>
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_payments"
+                                type="object"
+                                class="oe_stat_button"
+                                icon="fa-credit-card"
+                                invisible="not payment_ids">
+                            <field name="payment_ids" widget="statinfo" string="Pagos"/>
+                        </button>
+                    </div>
+
                     <div class="o_form_title mb-3">
                         <field name="order_id" readonly="1"/>
                     </div>
@@ -190,13 +212,13 @@
                         </group>
                     </group>
 
-                    <!-- Sección 2: Registro del pago realizado -->
-                    <separator string="Registro de Pago Realizado"/>
+                    <!-- Sección 2: Estado contable -->
+                    <separator string="Estado Contable"/>
                     <group col="2">
-                        <group string="Comprobante">
-                            <field name="paid_date"          string="Fecha de Pago"/>
-                            <field name="paid_amount"        string="Monto Pagado"/>
+                        <group string="Montos">
+                            <field name="paid_amount"        string="Monto Pagado (Contable)" readonly="1"/>
                             <field name="remaining_amount"   string="Saldo Restante" readonly="1"/>
+                            <field name="paid_date"          string="Fecha de Pago"/>
                             <field name="payment_reference"  string="Referencia / Folio"/>
                         </group>
                         <group string="Notas Adicionales">
@@ -205,6 +227,21 @@
                                    widget="text"/>
                         </group>
                     </group>
+
+                    <!-- Sección 3: Pagos contables vinculados -->
+                    <separator string="Pagos Contables Vinculados" invisible="not payment_ids"/>
+                    <field name="payment_ids" readonly="1" invisible="not payment_ids">
+                        <list>
+                            <field name="name"          string="Referencia"/>
+                            <field name="date"          string="Fecha"/>
+                            <field name="amount"        string="Monto"/>
+                            <field name="currency_id"/>
+                            <field name="state" widget="badge"
+                                   decoration-success="state == 'posted'"
+                                   decoration-warning="state == 'draft'"
+                                   decoration-danger="state == 'cancel'"/>
+                        </list>
+                    </field>
                 </sheet>
             </form>
         </field>
@@ -218,6 +255,7 @@
             <list string="Calendario de Pagos"
                   decoration-danger="state == 'overdue'"
                   decoration-success="state == 'paid'"
+                  decoration-info="state == 'partial'"
                   decoration-warning="state == 'pending'">
                 <field name="order_id"          string="Orden de Compra"/>
                 <field name="payment_type"      string="Tipo"/>
@@ -228,15 +266,20 @@
                 <field name="days_until_due"    string="Días"/>
                 <field name="state" widget="badge"
                        decoration-success="state == 'paid'"
+                       decoration-info="state == 'partial'"
                        decoration-danger="state == 'overdue'"
                        decoration-warning="state == 'pending'"/>
                 <field name="paid_date"         string="Fecha Pago"/>
-                <field name="remaining_amount"  string="Saldo"/>
+                <field name="paid_amount"       string="Pagado" readonly="1"/>
+                <field name="remaining_amount"  string="Saldo" readonly="1"/>
                 <field name="payment_reference" string="Referencia"/>
                 <field name="is_manual"         string="Manual"/>
                 <field name="note"              string="Nota"/>
-                <button name="action_mark_paid" string="✓"
-                        type="object" title="Marcar Pagado"
+                <button name="action_register_payment"
+                        string="💵 Pagar"
+                        type="object"
+                        class="btn btn-sm btn-success"
+                        title="Registrar Pago Contable"
                         invisible="state == 'paid'"/>
             </list>
         </field>
@@ -251,13 +294,14 @@
                 <field name="order_id"/>
                 <field name="due_date"/>
                 <filter string="Pendientes"        name="pending"     domain="[('state','=','pending')]"/>
+                <filter string="Pago Parcial"      name="partial"     domain="[('state','=','partial')]"/>
                 <filter string="Vencidos"          name="overdue"     domain="[('state','=','overdue')]"/>
                 <filter string="Pagados"           name="paid"        domain="[('state','=','paid')]"/>
                 <filter string="Vence esta semana" name="due_week"
                         domain="[
                             ('due_date', '!=', False),
                             ('due_date', '&gt;=', context_today().strftime('%Y-%m-%d')),
-                            ('state', '=', 'pending')
+                            ('state', 'in', ['pending', 'partial'])
                         ]"/>
                 <filter string="Manuales"          name="manual"      domain="[('is_manual','=',True)]"/>
                 <separator/>
