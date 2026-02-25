@@ -11,8 +11,7 @@
              NOTA TÉCNICA — Odoo 17+:
              El campo 'value' en account.payment.term.line ya NO acepta
              'balance'. Los valores válidos son solo 'percent' y 'fixed'.
-             El balance se expresa como la última línea con percent=100
-             (Odoo calcula el remanente automáticamente).
+             La suma de value_amount de TODAS las líneas debe ser exactamente 100%.
              ───────────────────────────────────────────────────────────── -->
 
         <!-- 1. 30% ANTICIPO - 70% 90 DÍAS DESPUÉS DE BL -->
@@ -25,7 +24,7 @@
             <field name="payment_term_note">Anticipo al confirmar OC. Balance se calcula automáticamente al ingresar fecha BL.</field>
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 90}),
+                Command.create({'value': 'percent', 'value_amount': 70.0, 'nb_days': 90}),
             ]"/>
         </record>
 
@@ -39,7 +38,7 @@
             <field name="payment_term_note">Programar pago del balance 7 días antes de ETA para asegurar Telex Release. Especialmente importante con proveedores en China o Turquía.</field>
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 1}),
+                Command.create({'value': 'percent', 'value_amount': 70.0, 'nb_days': 1}),
             ]"/>
         </record>
 
@@ -53,7 +52,7 @@
             <field name="payment_term_note">Programar pago del balance 7 días antes de ETA para asegurar Telex Release.</field>
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 0}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 1}),
+                Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 1}),
             ]"/>
         </record>
 
@@ -79,7 +78,7 @@
             <field name="payment_term_note">Programar pago del 80% 7 días antes de ETA. Sin pago no hay Telex Release.</field>
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 20.0, 'nb_days': 0}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 1}),
+                Command.create({'value': 'percent', 'value_amount': 80.0, 'nb_days': 1}),
             ]"/>
         </record>
 
@@ -93,7 +92,7 @@
             <field name="payment_term_note">Verificar que el proveedor acepte pago posterior al arribo. Requiere negociación de Telex Release.</field>
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 7}),
+                Command.create({'value': 'percent', 'value_amount': 70.0, 'nb_days': 7}),
             ]"/>
         </record>
 
@@ -119,7 +118,7 @@
             <field name="payment_term_note">Vencimiento del balance calculado desde fecha de factura comercial del proveedor.</field>
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 0}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 90}),
+                Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 90}),
             ]"/>
         </record>
 
@@ -157,7 +156,7 @@
             <field name="payment_term_note">CAD = Contra Documentos = Contra Entrega = Contra BL. Programar 7 días antes de ETA.</field>
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 1}),
+                Command.create({'value': 'percent', 'value_amount': 70.0, 'nb_days': 1}),
             ]"/>
         </record>
 
@@ -185,9 +184,6 @@
             ]"/>
         </record>
 
-        <!-- 14. 150 DÍAS DESPUÉS DE BL (duplicado explícito para compatibilidad con lista) -->
-        <!-- Ya existe como payment_term_150_bl arriba -->
-
         <!-- 15. 50% ANTICIPO / 25% CONTRAENTREGA / 25% A 60 DÍAS -->
         <record id="payment_term_50_25_25" model="account.payment.term">
             <field name="name">50% Anticipo / 25% Contraentrega / 25% 60 días</field>
@@ -201,7 +197,7 @@
             <field name="line_ids" eval="[
                 Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 0}),
                 Command.create({'value': 'percent', 'value_amount': 25.0, 'nb_days': 1}),
-                Command.create({'value': 'percent', 'value_amount': 100.0, 'nb_days': 60}),
+                Command.create({'value': 'percent', 'value_amount': 25.0, 'nb_days': 60}),
             ]"/>
         </record>
 
