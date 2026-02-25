@@ -215,11 +215,10 @@
                 <filter string="Pendientes" name="pending" domain="[('state','=','pending')]"/>
                 <filter string="Vencidos" name="overdue" domain="[('state','=','overdue')]"/>
                 <filter string="Pagados" name="paid" domain="[('state','=','paid')]"/>
-                <filter string="Vence esta semana" name="due_week"
+                <filter string="Vence próximamente" name="due_week"
                         domain="[
                             ('due_date', '!=', False),
                             ('due_date', '&gt;=', context_today().strftime('%Y-%m-%d')),
-                            ('days_until_due', '&lt;=', 7),
                             ('state', '=', 'pending')
                         ]"/>
                 <filter string="Manuales" name="manual" domain="[('is_manual','=',True)]"/>
