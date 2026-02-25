@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             TÉRMINOS DE PAGO SOMGROUP — IMPORTACIONES
+             Sesión #169 — Alphaqueb Consulting SAS — Febrero 2026
+        ═══════════════════════════════════════════════════════════════ -->
+
+        <!-- 1. 30% ANTICIPO - 70% 90 DÍAS DESPUÉS DE BL -->
+        <record id="payment_term_30_70_90bl" model="account.payment.term">
+            <field name="name">30% Anticipo - 70% 90 días BL</field>
+            <field name="note">30% al confirmar proforma. 70% a 90 días de la fecha BL.</field>
+            <field name="somgroup_term_type">advance_balance</field>
+            <field name="advance_percent">30.0</field>
+            <field name="balance_days">90</field>
+            <field name="requires_bl_date" eval="True"/>
+            <field name="payment_term_note">Anticipo al confirmar OC. Balance se calcula automáticamente al ingresar fecha BL.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
+                Command.create({'value': 'balance',  'nb_days': 90}),
+            ]"/>
+        </record>
+
+        <!-- 2. 30% ANTICIPO - 70% CONTRAENTREGA -->
+        <record id="payment_term_30_70_cad" model="account.payment.term">
+            <field name="name">30% Anticipo - 70% Contraentrega</field>
+            <field name="note">30% al confirmar proforma. 70% contra entrega / CAD antes de arribo.</field>
+            <field name="somgroup_term_type">against_delivery</field>
+            <field name="advance_percent">30.0</field>
+            <field name="days_before_eta">7</field>
+            <field name="payment_term_note">Programar pago del balance 7 días antes de ETA para asegurar Telex Release. Especialmente importante con proveedores en China o Turquía.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
+                Command.create({'value': 'balance', 'nb_days': 1}),
+            ]"/>
+        </record>
+
+        <!-- 3. 50% ANTICIPO - 50% CONTRAENTREGA -->
+        <record id="payment_term_50_50_cad" model="account.payment.term">
+            <field name="name">50% Anticipo - 50% Contraentrega</field>
+            <field name="note">50% al confirmar proforma. 50% contra entrega / CAD antes de arribo.</field>
+            <field name="somgroup_term_type">against_delivery</field>
+            <field name="advance_percent">50.0</field>
+            <field name="days_before_eta">7</field>
+            <field name="payment_term_note">Programar pago del balance 7 días antes de ETA para asegurar Telex Release.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 0}),
+                Command.create({'value': 'balance', 'nb_days': 1}),
+            ]"/>
+        </record>
+
+        <!-- 4. 90 DÍAS DESPUÉS DE FECHA FACTURA -->
+        <record id="payment_term_90_invoice" model="account.payment.term">
+            <field name="name">90 días después de Fecha Factura</field>
+            <field name="note">Pago total a 90 días de la fecha de factura comercial.</field>
+            <field name="somgroup_term_type">days_after_invoice</field>
+            <field name="balance_days">90</field>
+            <field name="payment_term_note">Vencimiento calculado desde fecha de factura del proveedor.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 90}),
+            ]"/>
+        </record>
+
+        <!-- 5. 20% ANTICIPO - 80% CONTRAENTREGA -->
+        <record id="payment_term_20_80_cad" model="account.payment.term">
+            <field name="name">20% Anticipo - 80% Contraentrega</field>
+            <field name="note">20% al confirmar proforma. 80% contra entrega / CAD antes de arribo.</field>
+            <field name="somgroup_term_type">against_delivery</field>
+            <field name="advance_percent">20.0</field>
+            <field name="days_before_eta">7</field>
+            <field name="payment_term_note">Programar pago del 80% 7 días antes de ETA. Sin pago no hay Telex Release.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 20.0, 'nb_days': 0}),
+                Command.create({'value': 'balance', 'nb_days': 1}),
+            ]"/>
+        </record>
+
+        <!-- 6. 30% ANTICIPO - 70% 1 SEMANA DESPUÉS DEL ARRIBO -->
+        <record id="payment_term_30_70_1week_arrival" model="account.payment.term">
+            <field name="name">30% Anticipo - 70% 1 semana después Arribo</field>
+            <field name="note">30% al confirmar proforma. 70% a 7 días del arribo (ETA + 7 días).</field>
+            <field name="somgroup_term_type">advance_days_arrival</field>
+            <field name="advance_percent">30.0</field>
+            <field name="balance_days">7</field>
+            <field name="payment_term_note">Verificar que el proveedor acepte pago posterior al arribo. Requiere negociación de Telex Release.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
+                Command.create({'value': 'balance', 'nb_days': 7}),
+            ]"/>
+        </record>
+
+        <!-- 7. 30 DÍAS (crédito simple) -->
+        <record id="payment_term_30_days" model="account.payment.term">
+            <field name="name">30 días</field>
+            <field name="note">Pago total a 30 días. Se aplica desde BL para importaciones o desde factura para fletes.</field>
+            <field name="somgroup_term_type">days_after_bl</field>
+            <field name="balance_days">30</field>
+            <field name="payment_term_note">Para importaciones: 30 días desde fecha BL. Para fletes terrestres/marítimos: 30 días desde fecha factura.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 30}),
+            ]"/>
+        </record>
+
+        <!-- 8. 50% ANTICIPO - 50% 90 DÍAS FECHA FACTURA -->
+        <record id="payment_term_50_50_90invoice" model="account.payment.term">
+            <field name="name">50% Anticipo - 50% 90 días Factura</field>
+            <field name="note">50% al confirmar proforma. 50% a 90 días de la fecha de factura.</field>
+            <field name="somgroup_term_type">advance_days_invoice</field>
+            <field name="advance_percent">50.0</field>
+            <field name="balance_days">90</field>
+            <field name="payment_term_note">Vencimiento del balance calculado desde fecha de factura comercial del proveedor.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 0}),
+                Command.create({'value': 'balance', 'nb_days': 90}),
+            ]"/>
+        </record>
+
+        <!-- 9. 100% PAGO ANTICIPADO -->
+        <record id="payment_term_100_advance" model="account.payment.term">
+            <field name="name">100% Pago Anticipado</field>
+            <field name="note">Pago total antes de inicio de producción. Sin pago no hay carga.</field>
+            <field name="somgroup_term_type">full_advance</field>
+            <field name="advance_percent">100.0</field>
+            <field name="payment_term_note">Confirmar recepción del pago antes de solicitar al proveedor que inicie producción o reserve mercancía.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 0}),
+            ]"/>
+        </record>
+
+        <!-- 10. 150 DÍAS DESPUÉS DE BL -->
+        <record id="payment_term_150_bl" model="account.payment.term">
+            <field name="name">150 días después de BL</field>
+            <field name="note">Pago total a 150 días de la fecha BL (Shipped on Board).</field>
+            <field name="somgroup_term_type">days_after_bl</field>
+            <field name="balance_days">150</field>
+            <field name="requires_bl_date" eval="True"/>
+            <field name="payment_term_note">Ingresar fecha BL para cálculo automático del vencimiento.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 150}),
+            ]"/>
+        </record>
+
+        <!-- 11. 30% ANTICIPO - 70% CAD -->
+        <record id="payment_term_30_70_cad2" model="account.payment.term">
+            <field name="name">30% Anticipo - 70% CAD</field>
+            <field name="note">30% al confirmar. 70% contra documentos (CAD) — equivale a contra entrega.</field>
+            <field name="somgroup_term_type">against_delivery</field>
+            <field name="advance_percent">30.0</field>
+            <field name="days_before_eta">7</field>
+            <field name="payment_term_note">CAD = Contra Documentos = Contra Entrega = Contra BL. Programar 7 días antes de ETA.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 30.0, 'nb_days': 0}),
+                Command.create({'value': 'balance', 'nb_days': 1}),
+            ]"/>
+        </record>
+
+        <!-- 12. 90 DÍAS DESPUÉS DE BL -->
+        <record id="payment_term_90_bl" model="account.payment.term">
+            <field name="name">90 días después de BL</field>
+            <field name="note">Pago total a 90 días de la fecha BL.</field>
+            <field name="somgroup_term_type">days_after_bl</field>
+            <field name="balance_days">90</field>
+            <field name="requires_bl_date" eval="True"/>
+            <field name="payment_term_note">Ingresar fecha BL para cálculo automático del vencimiento.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 90}),
+            ]"/>
+        </record>
+
+        <!-- 13. 120 DÍAS DESPUÉS DE BL -->
+        <record id="payment_term_120_bl" model="account.payment.term">
+            <field name="name">120 días después de BL</field>
+            <field name="note">Pago total a 120 días de la fecha BL.</field>
+            <field name="somgroup_term_type">days_after_bl</field>
+            <field name="balance_days">120</field>
+            <field name="requires_bl_date" eval="True"/>
+            <field name="payment_term_note">Ingresar fecha BL para cálculo automático del vencimiento.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 120}),
+            ]"/>
+        </record>
+
+        <!-- 14. 150 DÍAS DESPUÉS DE BL (duplicado explícito para compatibilidad con lista) -->
+        <!-- Ya existe como payment_term_150_bl arriba -->
+
+        <!-- 15. 50% ANTICIPO / 25% CONTRAENTREGA / 25% A 60 DÍAS -->
+        <record id="payment_term_50_25_25" model="account.payment.term">
+            <field name="name">50% Anticipo / 25% Contraentrega / 25% 60 días</field>
+            <field name="note">50% anticipo, 25% contra entrega, 25% a 60 días de la fecha BL/arribo.</field>
+            <field name="somgroup_term_type">advance_days_arrival</field>
+            <field name="advance_percent">50.0</field>
+            <field name="second_advance_percent">25.0</field>
+            <field name="balance_days">60</field>
+            <field name="days_before_eta">7</field>
+            <field name="payment_term_note">3 tramos: 50% anticipo, 25% antes de arribo (Telex Release), 25% a 60 días de arribo.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'percent', 'value_amount': 50.0, 'nb_days': 0}),
+                Command.create({'value': 'percent', 'value_amount': 25.0, 'nb_days': 1}),
+                Command.create({'value': 'balance', 'nb_days': 60}),
+            ]"/>
+        </record>
+
+        <!-- 16. CAD (Contra Documentos) — 100% -->
+        <record id="payment_term_cad_full" model="account.payment.term">
+            <field name="name">CAD - Contra Documentos (100%)</field>
+            <field name="note">Pago total contra documentos / contra BL antes del arribo.</field>
+            <field name="somgroup_term_type">against_delivery</field>
+            <field name="advance_percent">0.0</field>
+            <field name="days_before_eta">7</field>
+            <field name="payment_term_note">CAD = Contra Documentos = Contra Entrega. Sin anticipo previo. Pagar 7 días antes de ETA para obtener Telex Release.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 1}),
+            ]"/>
+        </record>
+
+        <!-- 17. CL (Contra BL) — 100% -->
+        <record id="payment_term_cl_full" model="account.payment.term">
+            <field name="name">CL - Contra BL (100%)</field>
+            <field name="note">Pago total contra BL antes del arribo al puerto mexicano.</field>
+            <field name="somgroup_term_type">against_delivery</field>
+            <field name="advance_percent">0.0</field>
+            <field name="days_before_eta">7</field>
+            <field name="payment_term_note">CL = Contra BL = Contra Documentos = CAD. Sin anticipo. Pagar antes de ETA para obtener Telex Release. Proveedores en Turquía/China: programar con 10 días de margen.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 1}),
+            ]"/>
+        </record>
+
+        <!-- EXTRA: 60 DÍAS DESPUÉS DE BL -->
+        <record id="payment_term_60_bl" model="account.payment.term">
+            <field name="name">60 días después de BL</field>
+            <field name="note">Pago total a 60 días de la fecha BL.</field>
+            <field name="somgroup_term_type">days_after_bl</field>
+            <field name="balance_days">60</field>
+            <field name="requires_bl_date" eval="True"/>
+            <field name="payment_term_note">Ingresar fecha BL para cálculo automático del vencimiento.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 60}),
+            ]"/>
+        </record>
+
+        <!-- EXTRA: 360 DÍAS DESPUÉS DE BL (Gramazini) -->
+        <record id="payment_term_360_bl" model="account.payment.term">
+            <field name="name">360 días después de BL</field>
+            <field name="note">Crédito a 360 días de la fecha BL. Término largo plazo.</field>
+            <field name="somgroup_term_type">days_after_bl</field>
+            <field name="balance_days">360</field>
+            <field name="requires_bl_date" eval="True"/>
+            <field name="payment_term_note">Verificar que proforma y factura comercial coincidan antes de la fecha de vencimiento.</field>
+            <field name="line_ids" eval="[
+                Command.create({'value': 'balance', 'nb_days': 360}),
+            ]"/>
+        </record>
+
+    </data>
+</odoo>
