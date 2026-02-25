@@ -47,14 +47,14 @@ class PurchaseOrder(models.Model):
         store=False,
     )
     requires_bl_date = fields.Boolean(
-        related='payment_term_id.requires_bl_date',
         string='Requiere Fecha BL',
-        readonly=True
+        compute='_compute_term_flags',
+        store=False,
     )
     requires_eta = fields.Boolean(
-        related='payment_term_id.requires_eta',
         string='Requiere ETA',
-        readonly=True
+        compute='_compute_term_flags',
+        store=False,
     )
     is_import_order = fields.Boolean(
         string='Es Orden de Importación',
@@ -63,8 +63,8 @@ class PurchaseOrder(models.Model):
     )
     telex_release_required = fields.Boolean(
         string='Requiere Telex Release',
-        compute='_compute_telex_release',
-        store=True,
+        compute='_compute_term_flags',
+        store=False,
         help="El pago del balance debe completarse antes del arribo para obtener Telex Release"
     )
     advance_amount = fields.Monetary(
@@ -98,13 +98,15 @@ class PurchaseOrder(models.Model):
             rec.container_count = len(rec.container_ids)
 
     @api.depends('payment_term_id', 'payment_term_id.somgroup_term_type')
-    def _compute_telex_release(self):
-        manual_types = ['against_delivery', 'advance_balance', 'advance_days_arrival']
+    def _compute_term_flags(self):
+        bl_types = ['days_after_bl']
+        eta_types = ['against_delivery', 'advance_balance', 'advance_days_arrival']
+        telex_types = ['against_delivery', 'advance_balance', 'advance_days_arrival']
         for rec in self:
-            rec.telex_release_required = (
-                rec.payment_term_id and
-                rec.payment_term_id.somgroup_term_type in manual_types
-            )
+            t = rec.payment_term_id.somgroup_term_type if rec.payment_term_id else False
+            rec.requires_bl_date = t in bl_types
+            rec.requires_eta = t in eta_types
+            rec.telex_release_required = t in telex_types
 
     @api.depends('payment_schedule_ids', 'payment_schedule_ids.amount',
                  'payment_schedule_ids.payment_type')
@@ -160,12 +162,10 @@ class PurchaseOrder(models.Model):
 
     @api.onchange('payment_term_id', 'bl_date', 'eta_date', 'amount_total', 'is_import_order')
     def _onchange_recalculate_schedule(self):
-        """Recalcula el calendario de pagos al cambiar término, BL o ETA."""
         if not self.is_import_order or not self.payment_term_id:
             return
         if self.payment_term_id.somgroup_term_type == 'standard':
             return
-        # Solo aviso — el cálculo real se hace al confirmar o con el botón
         term_type = self.payment_term_id.somgroup_term_type
         if term_type in ['days_after_bl', 'advance_balance'] and not self.bl_date:
             return {'warning': {
@@ -179,7 +179,6 @@ class PurchaseOrder(models.Model):
             }}
 
     def action_calculate_payment_schedule(self):
-        """Botón: Calcular / Recalcular calendario de pagos."""
         for order in self:
             if not order.payment_term_id:
                 raise UserError(_('Seleccione un término de pago antes de calcular.'))
@@ -188,9 +187,7 @@ class PurchaseOrder(models.Model):
             order._recalculate_payment_schedule()
 
     def _recalculate_payment_schedule(self):
-        """Elimina y recrea las líneas del calendario de pagos."""
         self.ensure_one()
-        # Borrar pendientes (no borrar los ya pagados)
         pending = self.payment_schedule_ids.filtered(lambda l: l.state == 'pending')
         pending.unlink()
 
@@ -212,7 +209,6 @@ class PurchaseOrder(models.Model):
 
     def write(self, vals):
         res = super().write(vals)
-        # Recalcular si cambia BL o ETA en órdenes de importación
         trigger_fields = {'bl_date', 'eta_date', 'payment_term_id'}
         if trigger_fields.intersection(vals.keys()):
             import_orders = self.filtered(
@@ -226,7 +222,6 @@ class PurchaseOrder(models.Model):
 
 
 class PurchaseOrderContainer(models.Model):
-    """Contenedores asociados a una orden de compra/importación."""
     _name = 'purchase.order.container'
     _description = 'Contenedor de Importación'
     _order = 'order_id, name'
@@ -255,7 +250,6 @@ class PurchaseOrderContainer(models.Model):
 
 
 class PurchasePaymentSchedule(models.Model):
-    """Calendario de pagos calculado para una orden de importación."""
     _name = 'purchase.payment.schedule'
     _description = 'Calendario de Pagos - Importación'
     _order = 'due_date asc, id asc'
@@ -314,17 +308,16 @@ class PurchasePaymentSchedule(models.Model):
                 delta = (rec.due_date - today).days
                 rec.days_until_due = delta
                 if delta < 0:
-                    rec.alert_color = 'red'   # Vencido
+                    rec.alert_color = 'red'
                 elif delta <= 7:
-                    rec.alert_color = 'orange'  # Próximo a vencer
+                    rec.alert_color = 'orange'
                 else:
-                    rec.alert_color = 'gray'   # Sin alerta
+                    rec.alert_color = 'gray'
             else:
                 rec.days_until_due = 0
-                rec.alert_color = 'blue'  # Manual / sin fecha
+                rec.alert_color = 'blue'
 
     def action_mark_paid(self):
-        """Marcar como pagado desde el calendario."""
         from datetime import date
         for rec in self:
             rec.write({

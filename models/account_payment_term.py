@@ -35,19 +35,19 @@ class AccountPaymentTerm(models.Model):
     requires_bl_date = fields.Boolean(
         string='Requiere Fecha BL',
         compute='_compute_requires_bl_date',
-        store=True,
+        store=False,
         help="Indica si este término necesita la fecha BL para calcular vencimientos"
     )
     requires_eta = fields.Boolean(
         string='Requiere ETA',
         compute='_compute_requires_eta',
-        store=True,
+        store=False,
         help="Indica si este término requiere seguimiento manual de ETA"
     )
     is_manual_scheduling = fields.Boolean(
         string='Programación Manual',
         compute='_compute_is_manual',
-        store=True,
+        store=False,
         help="El pago debe programarse manualmente por el área de Compras"
     )
     days_before_eta = fields.Integer(
