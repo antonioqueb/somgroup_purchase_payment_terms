@@ -216,11 +216,13 @@
                 <filter string="Vencidos" name="overdue" domain="[('state','=','overdue')]"/>
                 <filter string="Pagados" name="paid" domain="[('state','=','paid')]"/>
                 <filter string="Vence esta semana" name="due_week"
-                        domain="[('due_date','&gt;=', (context_today()).strftime('%Y-%m-%d')),
-                                 ('due_date','&lt;=', (context_today() + relativedelta(days=7)).strftime('%Y-%m-%d')),
-                                 ('state','=','pending')]"/>
+                        domain="[
+                            ('due_date', '!=', False),
+                            ('due_date', '&gt;=', context_today().strftime('%Y-%m-%d')),
+                            ('days_until_due', '&lt;=', 7),
+                            ('state', '=', 'pending')
+                        ]"/>
                 <filter string="Manuales" name="manual" domain="[('is_manual','=',True)]"/>
-                <group expand="0" string="Agrupar por">
                     <filter string="Proveedor" name="group_partner"
                             context="{'group_by': 'order_id'}"/>
                     <filter string="Tipo" name="group_type"
@@ -229,7 +231,6 @@
                             context="{'group_by': 'state'}"/>
                     <filter string="Mes Vencimiento" name="group_month"
                             context="{'group_by': 'due_date:month'}"/>
-                </group>
             </search>
         </field>
     </record>
