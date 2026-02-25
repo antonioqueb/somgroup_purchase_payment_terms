@@ -13,25 +13,32 @@
                     <field name="somgroup_term_type" widget="radio"/>
                     <field name="payment_term_note" placeholder="Instrucciones para el área de Compras..."/>
                 </group>
+
+                <!-- Campos anticipo / tramos — visibles cuando aplica -->
                 <group col="4"
-                      attrs="{'invisible': [('somgroup_term_type', 'in', ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance', 'against_delivery'])]}">
+                       invisible="somgroup_term_type in ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance', 'against_delivery']">
                     <field name="advance_percent"/>
                     <field name="second_advance_percent"
-                           attrs="{'invisible': [('somgroup_term_type', '!=', 'advance_days_arrival')]}"/>
+                           invisible="somgroup_term_type != 'advance_days_arrival'"/>
                     <field name="balance_days"
-                           attrs="{'invisible': [('somgroup_term_type', 'in', ['standard', 'full_advance', 'against_delivery'])]}"/>
+                           invisible="somgroup_term_type in ['standard', 'full_advance', 'against_delivery']"/>
                 </group>
+
+                <!-- Campos contra entrega / ETA -->
                 <group col="4"
-                      attrs="{'invisible': [('somgroup_term_type', 'in', ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance'])]}">
+                       invisible="somgroup_term_type in ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance']">
                     <field name="advance_percent"
-                           attrs="{'invisible': [('somgroup_term_type', 'not in', ['against_delivery'])]}"/>
+                           invisible="somgroup_term_type != 'against_delivery'"/>
                     <field name="days_before_eta"/>
                 </group>
+
+                <!-- Días para balance — solo para días después de BL/factura -->
                 <group col="2"
-                      attrs="{'invisible': [('somgroup_term_type', 'in', ['standard', 'advance_balance', 'advance_days_invoice', 'advance_days_arrival', 'full_advance', 'against_delivery'])]}">
-                    <field name="balance_days"
-                           attrs="{'invisible': [('somgroup_term_type', 'not in', ['days_after_bl', 'days_after_invoice'])]}"/>
+                       invisible="somgroup_term_type not in ['days_after_bl', 'days_after_invoice']">
+                    <field name="balance_days"/>
                 </group>
+
+                <!-- Indicadores de solo lectura -->
                 <group col="2">
                     <field name="requires_bl_date" readonly="1"/>
                     <field name="requires_eta" readonly="1"/>
