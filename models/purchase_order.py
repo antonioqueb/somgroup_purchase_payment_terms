@@ -386,34 +386,65 @@ class PurchasePaymentSchedule(models.Model):
         self._compute_paid_date()
         self._compute_state_from_accounting()
 
-    # ─── Acción: Abrir formulario de pago contable pre-llenado ───────────────
+    # ─── Acción: Registrar pago sobre factura vinculada ─────────────────────
 
     def action_register_payment(self):
         self.ensure_one()
         if self.state == 'paid':
             raise UserError(_('Este hito ya está completamente pagado.'))
 
-        return {
-            'name': _('Registrar Pago al Proveedor'),
-            'type': 'ir.actions.act_window',
-            'res_model': 'account.payment',
-            'view_mode': 'form',
-            'target': 'new',
-            'context': {
-                'default_payment_type': 'outbound',
-                'default_partner_type': 'supplier',
-                'default_partner_id': self.order_id.partner_id.id,
-                'default_amount': self.remaining_amount or self.amount,
-                'default_currency_id': self.currency_id.id,
-                'default_purchase_schedule_id': self.id,
-                'default_date': fields.Date.today(),
-                'default_ref': '{} - {} ({})'.format(
-                    self.order_id.name,
-                    dict(self._fields['payment_type'].selection).get(self.payment_type, ''),
-                    self.percent,
-                ),
-            },
-        }
+        # Buscar facturas de proveedor (in_invoice) vinculadas a la OC
+        # que estén publicadas y tengan saldo pendiente
+        order = self.order_id
+        invoices = order.invoice_ids.filtered(
+            lambda inv: inv.move_type == 'in_invoice'
+            and inv.state == 'posted'
+            and inv.payment_state in ('not_paid', 'partial')
+        )
+
+        if invoices:
+            # Usar el wizard nativo que concilia contra la(s) factura(s)
+            return {
+                'name': _('Registrar Pago'),
+                'type': 'ir.actions.act_window',
+                'res_model': 'account.payment.register',
+                'view_mode': 'form',
+                'target': 'new',
+                'context': {
+                    'active_model': 'account.move',
+                    'active_ids': invoices.ids,
+                    # Pre-llenar monto con el saldo del hito (no el total de la factura)
+                    'default_amount': min(
+                        self.remaining_amount or self.amount,
+                        sum(invoices.mapped('amount_residual'))
+                    ),
+                    'default_purchase_schedule_id': self.id,
+                },
+            }
+        else:
+            # No hay factura aún — pago directo al proveedor (anticipo)
+            # Aplica principalmente para el hito de anticipo antes de recibir factura
+            return {
+                'name': _('Registrar Anticipo al Proveedor'),
+                'type': 'ir.actions.act_window',
+                'res_model': 'account.payment',
+                'view_mode': 'form',
+                'target': 'new',
+                'context': {
+                    'default_payment_type': 'outbound',
+                    'default_partner_type': 'supplier',
+                    'default_partner_id': order.partner_id.id,
+                    'default_amount': self.remaining_amount or self.amount,
+                    'default_currency_id': self.currency_id.id,
+                    'default_purchase_schedule_id': self.id,
+                    'default_date': fields.Date.today(),
+                    'default_ref': '{} - {} ({:.0f}%)'.format(
+                        order.name,
+                        dict(self._fields['payment_type'].selection).get(self.payment_type, ''),
+                        self.percent,
+                    ),
+                },
+            }
 
     # ─── Acción legacy: Marcar pagado manualmente (sin contabilidad) ──────────
 
