@@ -11,104 +11,127 @@
             <!-- Toggle "Es Orden de Importación" junto al campo partner -->
             <xpath expr="//field[@name='partner_id']" position="after">
                 <field name="is_import_order" widget="boolean_toggle"
-                       string="Importación"/>
+                       string="¿Es Orden de Importación?"/>
             </xpath>
 
             <!-- Bloque BL/ETA debajo de payment_term_id -->
             <xpath expr="//field[@name='payment_term_id']" position="after">
 
                 <!-- Aviso de pago (alerta dinámica) -->
-                <div class="alert alert-warning mb-2"
+                <div class="alert alert-warning mb-3"
                      invisible="not payment_schedule_warning">
+                    <strong>⚠️ Aviso de Pago:</strong>
                     <field name="payment_schedule_warning" readonly="1" nolabel="1"/>
                 </div>
 
-                <!-- Campos BL / ETA — solo visibles en órdenes de importación -->
-                <group string="Datos de Embarque" col="4"
-                       invisible="not is_import_order">
-                    <field name="bl_date"/>
-                    <field name="bl_number"/>
-                    <field name="eta_date"/>
-                    <field name="requires_bl_date" invisible="1"/>
-                    <field name="requires_eta" invisible="1"/>
+                <!-- ── DATOS DE EMBARQUE ───────────────────────────────── -->
+                <group string="📦 Datos de Embarque (BL / ETA)"
+                       invisible="not is_import_order"
+                       col="2">
+                    <group string="Conocimiento de Embarque (BL)">
+                        <field name="bl_number" placeholder="Ej. MAEU123456789"/>
+                        <field name="bl_date"/>
+                        <field name="requires_bl_date" invisible="1"/>
+                    </group>
+                    <group string="Estimado de Llegada">
+                        <field name="eta_date"
+                               widget="date"
+                               placeholder="Fecha estimada de arribo"/>
+                        <field name="requires_eta" invisible="1"/>
+                        <field name="telex_release_required" readonly="1"
+                               invisible="not telex_release_required"/>
+                    </group>
                 </group>
 
-                <!-- Indicadores rápidos -->
-                <group col="4" invisible="not is_import_order">
-                    <field name="advance_amount" readonly="1"/>
-                    <field name="balance_amount" readonly="1"/>
-                    <field name="next_payment_date" readonly="1"/>
-                    <field name="overdue_payments" invisible="1"/>
-                    <field name="telex_release_required" readonly="1"
-                           invisible="not telex_release_required"/>
+                <!-- ── RESUMEN FINANCIERO ─────────────────────────────── -->
+                <group string="💰 Resumen Financiero"
+                       invisible="not is_import_order"
+                       col="4">
+                    <field name="advance_amount"    readonly="1" string="Anticipo"/>
+                    <field name="balance_amount"    readonly="1" string="Saldo Pendiente"/>
+                    <field name="next_payment_date" readonly="1" string="Próx. Vencimiento"/>
+                    <field name="overdue_payments"  invisible="1"/>
                 </group>
 
             </xpath>
 
-            <!-- Tab de Importación con calendario de pagos y contenedores -->
+            <!-- ── TAB DE IMPORTACIÓN ─────────────────────────────────── -->
             <xpath expr="//notebook" position="inside">
-                <page string="Importación / Calendario de Pagos"
+                <page string="🚢 Importación / Pagos"
                       invisible="not is_import_order"
                       name="import_tab">
 
-                    <!-- Botón recalcular -->
-                    <div class="mb-2">
+                    <!-- ── CALENDARIO DE PAGOS ──────────────────────── -->
+                    <separator string="📅 Calendario de Pagos"/>
+
+                    <div class="d-flex align-items-center mb-2 gap-2">
                         <button name="action_calculate_payment_schedule"
                                 string="🔄 Calcular / Recalcular Calendario"
                                 type="object"
                                 class="btn btn-primary btn-sm"/>
+                        <span class="text-muted small ms-2">
+                            Genera automáticamente los hitos de pago según las
+                            condiciones del proveedor.
+                        </span>
                     </div>
 
-                    <!-- Calendario de pagos -->
                     <field name="payment_schedule_ids" nolabel="1">
                         <list editable="bottom"
                               decoration-danger="state == 'overdue'"
                               decoration-success="state == 'paid'"
                               decoration-warning="state == 'pending'">
-                            <field name="payment_type"/>
-                            <field name="percent" string="%"/>
-                            <field name="amount"/>
-                            <field name="currency_id" column_invisible="1"/>
-                            <field name="due_date"/>
-                            <field name="days_until_due" string="Días" readonly="1"/>
+                            <field name="payment_type"      string="Tipo de Pago"/>
+                            <field name="percent"           string="% Porcentaje"/>
+                            <field name="amount"            string="Monto"/>
+                            <field name="currency_id"       column_invisible="1"/>
+                            <field name="due_date"          string="Fecha Límite"/>
+                            <field name="days_until_due"    string="Días Restantes" readonly="1"/>
                             <field name="state" widget="badge"
+                                   string="Estado"
                                    decoration-success="state == 'paid'"
                                    decoration-danger="state == 'overdue'"
                                    decoration-warning="state == 'pending'"/>
-                            <field name="paid_date" optional="hide"/>
-                            <field name="paid_amount" optional="hide"/>
-                            <field name="remaining_amount" readonly="1" optional="hide"/>
-                            <field name="payment_reference"/>
+                            <field name="paid_date"         optional="hide" string="Fecha Pago"/>
+                            <field name="paid_amount"       optional="hide" string="Monto Pagado"/>
+                            <field name="remaining_amount"  optional="hide" string="Saldo" readonly="1"/>
+                            <field name="payment_reference" string="Referencia"/>
                             <field name="is_manual" widget="boolean" string="Manual"/>
-                            <field name="note" string="Nota"/>
-                            <button name="action_mark_paid" string="✓ Pagar"
-                                    type="object" class="btn btn-sm btn-success"
+                            <field name="note"              string="Nota"/>
+                            <button name="action_mark_paid"
+                                    string="✓ Pagar"
+                                    type="object"
+                                    class="btn btn-sm btn-success"
                                     invisible="state == 'paid'"/>
                         </list>
                     </field>
 
-                    <!-- Contenedores -->
-                    <separator string="Contenedores"/>
+                    <!-- ── CONTENEDORES ──────────────────────────────── -->
+                    <separator string="🏗️ Contenedores"/>
+
                     <field name="container_ids" nolabel="1">
                         <list editable="bottom"
                               decoration-success="tax_state == 'paid'"
                               decoration-muted="tax_state == 'pending'">
-                            <field name="name" string="No. Contenedor"/>
-                            <field name="container_type"/>
-                            <field name="seal_number"/>
-                            <field name="tax_amount"/>
-                            <field name="currency_id" column_invisible="1"/>
+                            <field name="name"          string="No. Contenedor"
+                                   placeholder="TCKU1234567"/>
+                            <field name="container_type" string="Tipo"/>
+                            <field name="seal_number"   string="No. Sello"/>
+                            <field name="pedimento"     string="Pedimento"/>
+                            <field name="tax_amount"    string="Monto Impuesto"/>
+                            <field name="currency_id"   column_invisible="1"/>
                             <field name="tax_state" widget="badge"
+                                   string="Estado Impuesto"
                                    decoration-success="tax_state == 'paid'"
                                    decoration-warning="tax_state == 'pending'"/>
-                            <field name="tax_paid_date" optional="hide"/>
-                            <field name="pedimento"/>
-                            <field name="notes"/>
+                            <field name="tax_paid_date" optional="hide" string="Fecha Pago Imp."/>
+                            <field name="notes"         string="Notas"/>
                         </list>
                     </field>
 
-                    <group string="Resumen de Impuestos" col="2">
-                        <field name="container_count" string="Total Contenedores" readonly="1"/>
+                    <group string="📊 Resumen" col="2">
+                        <field name="container_count"
+                               string="Total de Contenedores"
+                               readonly="1"/>
                     </group>
 
                 </page>
@@ -117,62 +140,78 @@
         </field>
     </record>
 
-    <!-- ── Vista list de purchase.order con columnas de importación ─────── -->
+    <!-- ── Vista list de purchase.order ─────────────────────────────────── -->
     <record id="view_purchase_order_tree_somgroup" model="ir.ui.view">
         <field name="name">purchase.order.tree.somgroup</field>
         <field name="model">purchase.order</field>
         <field name="inherit_id" ref="purchase.purchase_order_tree"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='date_order']" position="after">
-                <field name="bl_date" optional="show" string="Fecha BL"/>
-                <field name="eta_date" optional="show" string="ETA"/>
-                <field name="next_payment_date" optional="show" string="Próx. Vcto."/>
-                <field name="overdue_payments" column_invisible="1"/>
+                <field name="bl_date"           optional="show"  string="Fecha BL"/>
+                <field name="eta_date"          optional="show"  string="ETA"/>
+                <field name="next_payment_date" optional="show"  string="Próx. Vcto."/>
+                <field name="overdue_payments"  column_invisible="1"/>
             </xpath>
         </field>
     </record>
 
-    <!-- ── Vista form de purchase.payment.schedule (standalone) ─────────── -->
+    <!-- ── Vista form standalone de purchase.payment.schedule ───────────── -->
     <record id="view_purchase_payment_schedule_form" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.form</field>
         <field name="model">purchase.payment.schedule</field>
         <field name="arch" type="xml">
             <form string="Pago Programado">
                 <header>
-                    <button name="action_mark_paid" string="Marcar Pagado"
-                            type="object" class="btn-primary"
+                    <button name="action_mark_paid"
+                            string="✓ Marcar como Pagado"
+                            type="object"
+                            class="btn-primary"
                             invisible="state == 'paid'"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="pending,paid"/>
                 </header>
                 <sheet>
-                    <group>
-                        <group>
-                            <field name="order_id"/>
-                            <field name="payment_type"/>
-                            <field name="percent"/>
-                            <field name="amount"/>
-                            <field name="currency_id"/>
+                    <div class="o_form_title mb-3">
+                        <field name="order_id" readonly="1"/>
+                    </div>
+
+                    <!-- Sección 1: Identificación del pago -->
+                    <separator string="Datos del Pago"/>
+                    <group col="2">
+                        <group string="¿Qué se paga?">
+                            <field name="payment_type" string="Tipo de Pago"/>
+                            <field name="percent"      string="Porcentaje (%)"/>
+                            <field name="amount"       string="Monto a Pagar"/>
+                            <field name="currency_id"  string="Moneda"/>
+                            <field name="is_manual"    string="Entrada Manual"/>
                         </group>
-                        <group>
-                            <field name="due_date"/>
-                            <field name="days_until_due"/>
-                            <field name="is_manual"/>
-                            <field name="paid_date"/>
-                            <field name="paid_amount"/>
-                            <field name="remaining_amount"/>
+                        <group string="¿Cuándo se paga?">
+                            <field name="due_date"      string="Fecha Límite"/>
+                            <field name="days_until_due" string="Días Restantes" readonly="1"/>
                         </group>
                     </group>
-                    <group>
-                        <field name="payment_reference"/>
-                        <field name="note"/>
+
+                    <!-- Sección 2: Registro del pago realizado -->
+                    <separator string="Registro de Pago Realizado"/>
+                    <group col="2">
+                        <group string="Comprobante">
+                            <field name="paid_date"          string="Fecha de Pago"/>
+                            <field name="paid_amount"        string="Monto Pagado"/>
+                            <field name="remaining_amount"   string="Saldo Restante" readonly="1"/>
+                            <field name="payment_reference"  string="Referencia / Folio"/>
+                        </group>
+                        <group string="Notas Adicionales">
+                            <field name="note" nolabel="1"
+                                   placeholder="Escribe aquí cualquier observación..."
+                                   widget="text"/>
+                        </group>
                     </group>
                 </sheet>
             </form>
         </field>
     </record>
 
-    <!-- ── Vista list de payment schedule (para menú independiente) ──────── -->
+    <!-- ── Vista list de payment schedule ───────────────────────────────── -->
     <record id="view_purchase_payment_schedule_tree" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.tree</field>
         <field name="model">purchase.payment.schedule</field>
@@ -181,22 +220,22 @@
                   decoration-danger="state == 'overdue'"
                   decoration-success="state == 'paid'"
                   decoration-warning="state == 'pending'">
-                <field name="order_id"/>
-                <field name="payment_type"/>
-                <field name="percent"/>
-                <field name="amount"/>
+                <field name="order_id"          string="Orden de Compra"/>
+                <field name="payment_type"      string="Tipo"/>
+                <field name="percent"           string="%"/>
+                <field name="amount"            string="Monto"/>
                 <field name="currency_id"/>
-                <field name="due_date"/>
-                <field name="days_until_due" string="Días"/>
+                <field name="due_date"          string="Fecha Límite"/>
+                <field name="days_until_due"    string="Días"/>
                 <field name="state" widget="badge"
                        decoration-success="state == 'paid'"
                        decoration-danger="state == 'overdue'"
                        decoration-warning="state == 'pending'"/>
-                <field name="paid_date"/>
-                <field name="remaining_amount"/>
-                <field name="payment_reference"/>
-                <field name="is_manual"/>
-                <field name="note"/>
+                <field name="paid_date"         string="Fecha Pago"/>
+                <field name="remaining_amount"  string="Saldo"/>
+                <field name="payment_reference" string="Referencia"/>
+                <field name="is_manual"         string="Manual"/>
+                <field name="note"              string="Nota"/>
                 <button name="action_mark_paid" string="✓"
                         type="object" title="Marcar Pagado"
                         invisible="state == 'paid'"/>
@@ -212,24 +251,21 @@
             <search string="Buscar Pagos">
                 <field name="order_id"/>
                 <field name="due_date"/>
-                <filter string="Pendientes" name="pending" domain="[('state','=','pending')]"/>
-                <filter string="Vencidos" name="overdue" domain="[('state','=','overdue')]"/>
-                <filter string="Pagados" name="paid" domain="[('state','=','paid')]"/>
-                <filter string="Vence próximamente" name="due_week"
+                <filter string="Pendientes"        name="pending"     domain="[('state','=','pending')]"/>
+                <filter string="Vencidos"          name="overdue"     domain="[('state','=','overdue')]"/>
+                <filter string="Pagados"           name="paid"        domain="[('state','=','paid')]"/>
+                <filter string="Vence esta semana" name="due_week"
                         domain="[
                             ('due_date', '!=', False),
                             ('due_date', '&gt;=', context_today().strftime('%Y-%m-%d')),
                             ('state', '=', 'pending')
                         ]"/>
-                <filter string="Manuales" name="manual" domain="[('is_manual','=',True)]"/>
-                    <filter string="Proveedor" name="group_partner"
-                            context="{'group_by': 'order_id'}"/>
-                    <filter string="Tipo" name="group_type"
-                            context="{'group_by': 'payment_type'}"/>
-                    <filter string="Estado" name="group_state"
-                            context="{'group_by': 'state'}"/>
-                    <filter string="Mes Vencimiento" name="group_month"
-                            context="{'group_by': 'due_date:month'}"/>
+                <filter string="Manuales"          name="manual"      domain="[('is_manual','=',True)]"/>
+                <separator/>
+                <filter string="Por Proveedor"     name="group_partner" context="{'group_by': 'order_id'}"/>
+                <filter string="Por Tipo"          name="group_type"    context="{'group_by': 'payment_type'}"/>
+                <filter string="Por Estado"        name="group_state"   context="{'group_by': 'state'}"/>
+                <filter string="Por Mes"           name="group_month"   context="{'group_by': 'due_date:month'}"/>
             </search>
         </field>
     </record>
@@ -244,7 +280,7 @@
             <p class="o_view_nocontent_smiling_face">
                 No hay pagos programados.
             </p>
-            <p>Marca una Orden de Compra como "Importación" y presiona
+            <p>Marca una Orden de Compra como "¿Es Orden de Importación?" y presiona
                "Calcular Calendario" para generar los compromisos de pago.</p>
         </field>
     </record>
