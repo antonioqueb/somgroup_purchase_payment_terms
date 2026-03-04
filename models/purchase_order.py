@@ -423,7 +423,12 @@ class PurchasePaymentSchedule(models.Model):
         })
 
     def _get_advance_expense_account(self, product):
-        """Devuelve la cuenta de gastos/anticipos para la línea de la factura de anticipo."""
+        """Devuelve la cuenta de gastos/anticipos para la línea de la factura de anticipo.
+        
+        NOTA Odoo 19: account.account ya no tiene campo company_id.
+        La restricción por compañía se maneja a nivel de account.chart.template
+        y account.company. No filtrar por company_id en el search.
+        """
         # Primero intentar la cuenta del producto
         account = (
             product.property_account_expense_id
@@ -432,20 +437,19 @@ class PurchasePaymentSchedule(models.Model):
         if account:
             return account
 
-        # Fallback: buscar cuenta de anticipos a proveedores (cuenta de activo típica)
+        # Fallback: buscar cuenta de anticipos a proveedores por código
         # Código típico en México: 1140 Anticipos a proveedores
         account = self.env['account.account'].search([
             ('code', 'like', '1140'),
-            ('company_id', '=', self.env.company.id),
+            ('deprecated', '=', False),
         ], limit=1)
         if account:
             return account
 
-        # Último fallback: cualquier cuenta de gastos activa
+        # Último fallback: cualquier cuenta de gastos o activo circulante activa
         account = self.env['account.account'].search([
             ('account_type', 'in', ['expense', 'asset_current']),
             ('deprecated', '=', False),
-            ('company_id', '=', self.env.company.id),
         ], limit=1)
         return account
 
