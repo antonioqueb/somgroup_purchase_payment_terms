@@ -445,7 +445,7 @@ class PurchasePaymentSchedule(models.Model):
             for pol in po_lines:
                 account = self._get_expense_account(pol.product_id)
                 # Usar taxes de la línea de la OC directamente
-                taxes = pol.taxes_id
+                taxes = pol.tax_ids
                 if order.fiscal_position_id:
                     taxes = order.fiscal_position_id.map_tax(taxes)
                 invoice_lines.append((0, 0, {
