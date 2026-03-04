@@ -338,7 +338,6 @@ class PurchasePaymentSchedule(models.Model):
             posted = rec.payment_ids.filtered(lambda p: p.state == 'posted').sorted('date')
             if posted:
                 rec.paid_date = posted[-1].date
-            # Si no hay pagos contables, no sobreescribir el valor manual
             elif not rec.paid_date:
                 rec.paid_date = False
 
@@ -347,7 +346,7 @@ class PurchasePaymentSchedule(models.Model):
         from datetime import date
         today = date.today()
         for rec in self:
-            if rec.paid_amount and rec.paid_amount >= rec.amount:
+            if rec.paid_amount and rec.paid_amount >= (rec.amount - 0.01):
                 rec.state = 'paid'
             elif rec.paid_amount and rec.paid_amount > 0:
                 rec.state = 'partial'
@@ -377,14 +376,113 @@ class PurchasePaymentSchedule(models.Model):
                 rec.days_until_due = 0
                 rec.alert_color = 'blue'
 
-    # ─── Método de recálculo llamado desde account.payment ───────────────────
+    # ─── Métodos de recálculo desde contabilidad ─────────────────────────────
 
     def _recompute_from_payments(self):
-        """Forzar recompute de montos y estado desde los pagos contables."""
-        self._compute_paid_amounts()
-        self._compute_remaining()
-        self._compute_paid_date()
-        self._compute_state_from_accounting()
+        """
+        Punto de entrada principal para actualizar hitos.
+        Detecta si hay pagos directamente vinculados (purchase_schedule_id)
+        o si hay que buscar por OC via conciliaciones contables.
+        """
+        direct = self.filtered(lambda s: s.payment_ids)
+        indirect = self - direct
+
+        if direct:
+            direct._compute_paid_amounts()
+            direct._compute_remaining()
+            direct._compute_paid_date()
+            direct._compute_state_from_accounting()
+
+        if indirect:
+            indirect._recompute_from_payments_by_order()
+
+    def _recompute_from_payments_by_order(self):
+        """
+        Sincronización profunda con contabilidad:
+        Busca TODOS los pagos posted asociados a facturas de la OC via
+        conciliaciones contables, sin requerir purchase_schedule_id en el pago.
+        Distribuye el total pagado en los hitos en orden cronológico.
+        """
+        from datetime import date
+        today = date.today()
+
+        orders = self.mapped('order_id')
+        for order in orders:
+            order_schedules = self.filtered(lambda s: s.order_id == order).sorted(
+                key=lambda s: (s.due_date or date.max)
+            )
+            if not order_schedules:
+                continue
+
+            # ── Recolectar todos los pagos posted vinculados a facturas de la OC ──
+            all_payments = self.env['account.payment']
+
+            invoices = order.invoice_ids.filtered(
+                lambda inv: inv.move_type == 'in_invoice' and inv.state == 'posted'
+            )
+
+            for inv in invoices:
+                for line in inv.line_ids.filtered(
+                    lambda l: l.account_id.account_type == 'liability_payable'
+                ):
+                    for matched in (line.matched_debit_ids | line.matched_credit_ids):
+                        counterpart = (
+                            matched.debit_move_id
+                            if line == matched.credit_move_id
+                            else matched.credit_move_id
+                        )
+                        payment = counterpart.move_id.payment_id
+                        if payment and payment.state == 'posted':
+                            all_payments |= payment
+
+            # Incluir también pagos directamente vinculados vía purchase_schedule_id
+            direct_payments = self.env['account.payment'].search([
+                ('purchase_schedule_id', 'in', order_schedules.ids),
+                ('state', '=', 'posted'),
+            ])
+            all_payments |= direct_payments
+
+            total_paid = sum(all_payments.mapped('amount'))
+            remaining_to_distribute = total_paid
+
+            # ── Distribuir en hitos, en orden cronológico ──────────────────
+            for schedule in order_schedules:
+                # Pagos directamente vinculados a este hito específico
+                direct = direct_payments.filtered(
+                    lambda p: p.purchase_schedule_id == schedule
+                )
+                direct_amount = sum(direct.mapped('amount'))
+
+                if direct_amount > 0:
+                    # Usar monto exacto de pagos directos
+                    schedule_paid = min(direct_amount, schedule.amount)
+                    remaining_to_distribute = max(0.0, remaining_to_distribute - direct_amount)
+                elif remaining_to_distribute > 0:
+                    # Asignar del pool acumulado (pagos sin vínculo directo)
+                    schedule_paid = min(remaining_to_distribute, schedule.amount)
+                    remaining_to_distribute -= schedule_paid
+                else:
+                    schedule_paid = 0.0
+
+                # Actualizar campos almacenados directamente
+                schedule.paid_amount = schedule_paid
+                schedule.remaining_amount = max(0.0, (schedule.amount or 0.0) - schedule_paid)
+
+                # Determinar fecha de pago: último pago directo, o el más reciente del pool
+                if direct:
+                    schedule.paid_date = direct.sorted('date')[-1].date
+                elif schedule_paid > 0 and all_payments:
+                    schedule.paid_date = all_payments.sorted('date')[-1].date
+
+                # Recalcular estado
+                if schedule_paid >= (schedule.amount - 0.01):
+                    schedule.state = 'paid'
+                elif schedule_paid > 0:
+                    schedule.state = 'partial'
+                elif schedule.due_date and schedule.due_date < today:
+                    schedule.state = 'overdue'
+                else:
+                    schedule.state = 'pending'
 
     # ─── Acción: Registrar pago sobre factura vinculada ─────────────────────
 
@@ -393,8 +491,6 @@ class PurchasePaymentSchedule(models.Model):
         if self.state == 'paid':
             raise UserError(_('Este hito ya está completamente pagado.'))
 
-        # Buscar facturas de proveedor (in_invoice) vinculadas a la OC
-        # que estén publicadas y tengan saldo pendiente
         order = self.order_id
         invoices = order.invoice_ids.filtered(
             lambda inv: inv.move_type == 'in_invoice'
@@ -403,7 +499,6 @@ class PurchasePaymentSchedule(models.Model):
         )
 
         if invoices:
-            # Usar el wizard nativo que concilia contra la(s) factura(s)
             return {
                 'name': _('Registrar Pago'),
                 'type': 'ir.actions.act_window',
@@ -413,7 +508,6 @@ class PurchasePaymentSchedule(models.Model):
                 'context': {
                     'active_model': 'account.move',
                     'active_ids': invoices.ids,
-                    # Pre-llenar monto con el saldo del hito (no el total de la factura)
                     'default_amount': min(
                         self.remaining_amount or self.amount,
                         sum(invoices.mapped('amount_residual'))
@@ -422,8 +516,6 @@ class PurchasePaymentSchedule(models.Model):
                 },
             }
         else:
-            # No hay factura aún — pago directo al proveedor (anticipo)
-            # Aplica principalmente para el hito de anticipo antes de recibir factura
             return {
                 'name': _('Registrar Anticipo al Proveedor'),
                 'type': 'ir.actions.act_window',
@@ -456,7 +548,6 @@ class PurchasePaymentSchedule(models.Model):
                 rec.write({
                     'paid_date': rec.paid_date or date.today(),
                 })
-                # Si no hay pagos contables, forzar state directamente
                 if not rec.payment_ids:
                     rec.write({'paid_amount': rec.amount})
 
@@ -469,6 +560,13 @@ class PurchasePaymentSchedule(models.Model):
             ('due_date', '!=', False),
         ])
         pending._compute_state_from_accounting()
+        return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+    # ─── Acción: Forzar sincronización manual con contabilidad ───────────────
+
+    def action_sync_from_accounting(self):
+        """Botón manual para forzar resync desde contabilidad."""
+        self._recompute_from_payments_by_order()
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
     # ─── Smart button: ver pagos vinculados ──────────────────────────────────
