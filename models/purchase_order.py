@@ -114,7 +114,7 @@ class PurchaseOrder(models.Model):
             if not order.payment_term_id:
                 raise UserError(_('Seleccione un término de pago antes de calcular.'))
             if order.payment_term_id.somgroup_term_type == 'standard':
-                raise UserError(_('Este término usa el motor estándar de Odoo. El calendario se gestiona en las facturas.'))
+                raise UserError(_('Este término usa el motor estándar de Odoo.'))
             order._recalculate_payment_schedule()
 
     def _recalculate_payment_schedule(self):
@@ -123,30 +123,26 @@ class PurchaseOrder(models.Model):
             lambda l: l.state == 'pending' and not l.payment_ids)
         pending.unlink()
         lines = self.payment_term_id.compute_due_dates(self)
-        schedule_vals = []
-        for line in lines:
-            schedule_vals.append({
-                'order_id': self.id,
-                'payment_type': line['type'],
-                'percent': line['percent'],
-                'amount': line['amount'],
-                'due_date': line['due_date'],
-                'note': line['note'],
-                'is_manual': line['is_manual'],
-                'state': 'pending',
-            })
-        if schedule_vals:
-            self.env['purchase.payment.schedule'].create(schedule_vals)
+        vals_list = [{
+            'order_id': self.id,
+            'payment_type': l['type'],
+            'percent': l['percent'],
+            'amount': l['amount'],
+            'due_date': l['due_date'],
+            'note': l['note'],
+            'is_manual': l['is_manual'],
+            'state': 'pending',
+        } for l in lines]
+        if vals_list:
+            self.env['purchase.payment.schedule'].create(vals_list)
 
     def write(self, vals):
         res = super().write(vals)
-        trigger_fields = {'bl_date', 'eta_date', 'payment_term_id'}
-        if trigger_fields.intersection(vals.keys()):
-            import_orders = self.filtered(
-                lambda o: o.is_import_order and
-                o.payment_term_id and
-                o.payment_term_id.somgroup_term_type != 'standard')
-            for order in import_orders:
+        if {'bl_date', 'eta_date', 'payment_term_id'}.intersection(vals.keys()):
+            for order in self.filtered(
+                lambda o: o.is_import_order and o.payment_term_id and
+                o.payment_term_id.somgroup_term_type != 'standard'
+            ):
                 order._recalculate_payment_schedule()
         return res
 
@@ -194,13 +190,13 @@ class PurchasePaymentSchedule(models.Model):
     payment_ids = fields.One2many(
         'account.payment', 'purchase_schedule_id', string='Pagos Contables', readonly=True)
 
-    # Campos regulares — NO compute+store para evitar que el ORM pise valores escritos
+    # Campos regulares — sin compute+store para evitar que el ORM pise valores escritos
     state = fields.Selection([
         ('pending', 'Pendiente'),
         ('partial', 'Pago Parcial'),
         ('paid', 'Pagado'),
         ('overdue', 'Vencido'),
-    ], string='Estado', default='pending', store=True, tracking=True)
+    ], string='Estado', default='pending', store=True)
 
     paid_amount = fields.Monetary(
         string='Monto Pagado', store=True, default=0.0, currency_field='currency_id')
@@ -242,19 +238,18 @@ class PurchasePaymentSchedule(models.Model):
         return 'pending'
 
     def _recompute_from_payments(self):
-        """Punto de entrada unificado."""
         self._recompute_from_payments_by_order()
 
-    def _recompute_from_payments_by_order(self):
+    def _recompute_from_payments_by_order(self, extra_payments=None):
         """
-        Busca todos los pagos posted vinculados a facturas de la OC via
-        conciliaciones contables y escribe directamente state, paid_amount, etc.
+        Sincroniza state/paid_amount desde contabilidad.
+        extra_payments: recordset de account.payment a incluir además de los de DB
+                        (útil cuando el pago recién creado aún no está en matched_entries)
         """
         from datetime import date
 
+        extra_payments = extra_payments or self.env['account.payment']
         orders = self.mapped('order_id')
-        _logger.info('[SOMGROUP] _recompute_from_payments_by_order - orders: %s, schedules: %s',
-                     orders.ids, self.ids)
 
         for order in orders:
             order_schedules = self.filtered(lambda s: s.order_id == order).sorted(
@@ -269,46 +264,53 @@ class PurchasePaymentSchedule(models.Model):
             invoices = order.invoice_ids.filtered(
                 lambda inv: inv.move_type == 'in_invoice' and inv.state == 'posted'
             )
-            _logger.info('[SOMGROUP] order %s posted invoices: %s', order.name, invoices.ids)
-
             for inv in invoices:
-                payable_lines = inv.line_ids.filtered(
+                for line in inv.line_ids.filtered(
                     lambda l: l.account_id.account_type == 'liability_payable'
-                )
-                _logger.info('[SOMGROUP] invoice %s payable lines: %s', inv.name, payable_lines.ids)
-                for line in payable_lines:
-                    all_matched = line.matched_debit_ids | line.matched_credit_ids
-                    _logger.info('[SOMGROUP] line %s matched entries: %s', line.id,
-                                 [(m.id, m.debit_move_id.id, m.credit_move_id.id) for m in all_matched])
-                    for matched in all_matched:
+                ):
+                    for matched in (line.matched_debit_ids | line.matched_credit_ids):
                         counterpart = (
                             matched.debit_move_id
                             if line == matched.credit_move_id
                             else matched.credit_move_id
                         )
                         payment = counterpart.move_id.payment_id
-                        _logger.info('[SOMGROUP] counterpart move %s, payment_id: %s, state: %s',
-                                     counterpart.move_id.id,
-                                     payment.id if payment else None,
-                                     payment.state if payment else None)
                         if payment and payment.state == 'posted':
                             all_payments |= payment
 
-            # Pagos directamente vinculados vía purchase_schedule_id
-            direct_payments = self.env['account.payment'].search([
+            # Pagos directamente vinculados vía purchase_schedule_id (búsqueda en DB)
+            direct_payments_db = self.env['account.payment'].search([
                 ('purchase_schedule_id', 'in', order_schedules.ids),
                 ('state', '=', 'posted'),
             ])
-            _logger.info('[SOMGROUP] order %s direct_payments: %s', order.name, direct_payments.ids)
-            all_payments |= direct_payments
+            all_payments |= direct_payments_db
+
+            # Extra payments pasados explícitamente (recién creados, aún no en DB search)
+            order_extra = extra_payments.filtered(
+                lambda p: p.purchase_schedule_id and
+                p.purchase_schedule_id in order_schedules and
+                p.state == 'posted'
+            )
+            all_payments |= order_extra
+
+            # También extra payments sin vínculo directo pero cuya factura es de esta OC
+            for p in extra_payments.filtered(lambda p: not p.purchase_schedule_id and p.state == 'posted'):
+                for inv in p._get_reconciled_invoices() if hasattr(p, '_get_reconciled_invoices') else []:
+                    if inv.invoice_line_ids.mapped('purchase_line_id.order_id') & order:
+                        all_payments |= p
+                        break
+
+            # direct_payments para distribución priorizada
+            direct_payments = direct_payments_db | order_extra.filtered(
+                lambda p: p.purchase_schedule_id in order_schedules
+            )
 
             total_paid = sum(all_payments.mapped('amount'))
-            _logger.info('[SOMGROUP] order %s total_paid from all_payments (%s): %s',
+            _logger.info('[SOMGROUP] order %s all_payments=%s total_paid=%s',
                          order.name, all_payments.ids, total_paid)
 
             remaining_to_distribute = total_paid
 
-            # ── Distribuir cronológicamente ───────────────────────────────
             for schedule in order_schedules:
                 direct = direct_payments.filtered(
                     lambda p: p.purchase_schedule_id == schedule
@@ -333,10 +335,8 @@ class PurchasePaymentSchedule(models.Model):
 
                 new_state = self._resolve_state(schedule_paid, schedule.amount, schedule.due_date)
 
-                _logger.info(
-                    '[SOMGROUP] schedule %s (type=%s, amount=%s) -> paid=%s, state=%s',
-                    schedule.id, schedule.payment_type, schedule.amount, schedule_paid, new_state
-                )
+                _logger.info('[SOMGROUP] schedule %s -> paid=%s state=%s',
+                             schedule.id, schedule_paid, new_state)
 
                 vals = {
                     'paid_amount': schedule_paid,
@@ -347,7 +347,6 @@ class PurchasePaymentSchedule(models.Model):
                     vals['paid_date'] = paid_date
 
                 schedule.sudo().write(vals)
-                _logger.info('[SOMGROUP] schedule %s written OK - state now: %s', schedule.id, schedule.state)
 
     def action_register_payment(self):
         self.ensure_one()
@@ -415,18 +414,16 @@ class PurchasePaymentSchedule(models.Model):
     def action_mark_overdue(self):
         from datetime import date
         today = date.today()
-        pending = self.search([
+        for rec in self.search([
             ('state', 'in', ['pending', 'partial']),
             ('due_date', '<', today),
             ('due_date', '!=', False),
-        ])
-        for rec in pending:
+        ]):
             rec.write({'state': 'overdue'})
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
     def action_sync_from_accounting(self):
-        """Botón manual para forzar resync — útil para hitos históricos."""
-        _logger.info('[SOMGROUP] action_sync_from_accounting called for schedules: %s', self.ids)
+        _logger.info('[SOMGROUP] Manual sync triggered for schedules: %s', self.ids)
         self._recompute_from_payments_by_order()
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
