@@ -38,14 +38,13 @@ class AccountMove(models.Model):
                 and o.payment_term_id.somgroup_term_type != 'standard'
             )
 
-            # ── Ruta 2: factura es advance_invoice_id de algún hito ──────────
-            # Buscar schedules que tengan esta factura como su factura de anticipo
+            # ── Ruta 2: factura es schedule_invoice_id de algún hito ──────────
             linked_schedules = self.env['purchase.payment.schedule'].search([
-                ('advance_invoice_id', '=', move.id)
+                ('schedule_invoice_id', '=', move.id)
             ])
             if linked_schedules:
                 _logger.info(
-                    '[SOMGROUP] move %s es advance_invoice de schedules: %s',
+                    '[SOMGROUP] move %s es schedule_invoice de hitos: %s',
                     move.id, linked_schedules.ids
                 )
                 schedules_direct |= linked_schedules
@@ -53,9 +52,16 @@ class AccountMove(models.Model):
                     lambda o: o.is_import_order and o.payment_schedule_ids
                 )
 
+            # ── Ruta 3: factura vinculada a la OC via purchase_id ────────────
+            if move.purchase_id:
+                order = move.purchase_id
+                if (order.is_import_order
+                        and order.payment_schedule_ids
+                        and order.payment_term_id.somgroup_term_type != 'standard'):
+                    orders |= order
+
         _logger.info('[SOMGROUP] Orders to sync: %s', orders.ids)
 
-        # Recopilar todos los schedules a recomputar
         all_schedules = orders.mapped('payment_schedule_ids') | schedules_direct
         _logger.info('[SOMGROUP] Schedules to recompute: %s', all_schedules.ids)
 
