@@ -376,16 +376,33 @@ class PurchasePaymentSchedule(models.Model):
             'ref': ref,
         }
 
+    def _get_invoice_tax(self, product, order):
+        """
+        Obtiene los impuestos correctos para la línea de factura.
+        Prioridad: impuestos del producto para compras → impuestos fiscales de la posición del partner.
+        """
+        taxes = product.supplier_taxes_id
+        if order.fiscal_position_id:
+            taxes = order.fiscal_position_id.map_tax(taxes)
+        return taxes
+
+    def _get_amount_untaxed(self):
+        """
+        Calcula el monto sin IVA para este hito basándose en el porcentaje.
+        Usa amount_untaxed de la OC para no duplicar impuestos.
+        """
+        order = self.order_id
+        # Si la OC tiene amount_untaxed, usar ese como base
+        if order.amount_untaxed:
+            return round(order.amount_untaxed * self.percent / 100.0, 2)
+        # Fallback: asumir que self.amount ya es sin IVA
+        return self.amount
+
     def _create_advance_invoice(self):
-        """
-        Crea y postea una vendor bill de anticipo.
-        Posted inmediatamente → disponible para payment.register.
-        Al llegar la factura real del proveedor, el contador aplica
-        el crédito via 'Outstanding Credits'.
-        """
         self.ensure_one()
         product = self._get_advance_product()
         account = self._get_expense_account(product)
+        order = self.order_id
 
         if not account:
             raise UserError(_(
@@ -394,15 +411,17 @@ class PurchasePaymentSchedule(models.Model):
             ))
 
         type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
-        order = self.order_id
+        taxes = self._get_invoice_tax(product, order)
+        price_unit = self._get_amount_untaxed()
 
         vals = self._build_invoice_base_vals()
         vals['invoice_line_ids'] = [(0, 0, {
             'name': '[{}] {} — {:.0f}%'.format(type_label.upper(), order.name, self.percent),
             'product_id': product.id,
             'quantity': 1.0,
-            'price_unit': self.amount,
+            'price_unit': price_unit,
             'account_id': account.id,
+            'tax_ids': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
         })]
 
         invoice = self.env['account.move'].create(vals)
@@ -414,14 +433,6 @@ class PurchasePaymentSchedule(models.Model):
         return invoice
 
     def _create_balance_invoice(self):
-        """
-        Crea una vendor bill en BORRADOR para el hito de balance.
-        BORRADOR porque el monto real puede diferir del estimado.
-        El contador la revisa, ajusta y confirma antes de pagar.
-
-        Líneas: proporcionales (percent/100) de las líneas de la OC.
-        Si no hay líneas confirmadas → línea genérica con monto del hito.
-        """
         self.ensure_one()
         order = self.order_id
         vals = self._build_invoice_base_vals()
@@ -433,30 +444,37 @@ class PurchasePaymentSchedule(models.Model):
         if po_lines:
             for pol in po_lines:
                 account = self._get_expense_account(pol.product_id)
+                # Usar taxes de la línea de la OC directamente
+                taxes = pol.taxes_id
+                if order.fiscal_position_id:
+                    taxes = order.fiscal_position_id.map_tax(taxes)
                 invoice_lines.append((0, 0, {
                     'name': '[BALANCE {:.0f}%] {}'.format(
                         self.percent, pol.name or pol.product_id.name),
                     'product_id': pol.product_id.id,
                     'quantity': pol.product_qty * factor,
-                    'price_unit': pol.price_unit,
+                    'price_unit': pol.price_unit,  # precio unitario sin IVA
                     'account_id': account.id if account else False,
                     'purchase_line_id': pol.id,
+                    'tax_ids': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
                 }))
         else:
             product = self._get_advance_product()
             account = self._get_expense_account(product)
+            taxes = self._get_invoice_tax(product, order)
+            price_unit = self._get_amount_untaxed()
             type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
             invoice_lines.append((0, 0, {
                 'name': '[BALANCE] {} — {:.0f}%'.format(order.name, self.percent),
                 'product_id': product.id,
                 'quantity': 1.0,
-                'price_unit': self.amount,
+                'price_unit': price_unit,
                 'account_id': account.id if account else False,
+                'tax_ids': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
             }))
 
         vals['invoice_line_ids'] = invoice_lines
         invoice = self.env['account.move'].create(vals)
-        # NO postear — queda en borrador para revisión
 
         self.write({'schedule_invoice_id': invoice.id})
         _logger.info('[SOMGROUP] Factura balance %s (id=%s, borrador) → hito %s OC %s',
