@@ -119,13 +119,20 @@ class PurchaseOrder(models.Model):
 
     def _recalculate_payment_schedule(self):
         self.ensure_one()
-        # Solo borrar hitos pendientes sin pago ni factura vinculada
-        pending = self.payment_schedule_ids.filtered(
+        # Borrar SOLO hitos pendientes sin pago y sin factura vinculada
+        pending_clean = self.payment_schedule_ids.filtered(
             lambda l: l.state == 'pending'
             and not l.payment_ids
             and not l.schedule_invoice_id
         )
-        pending.unlink()
+        pending_clean.unlink()
+
+        # Si quedan hitos (tienen pago o factura), no crear duplicados
+        if self.payment_schedule_ids:
+            _logger.info(
+                '[SOMGROUP] OC %s ya tiene hitos con factura/pago, omitiendo recalculo.',
+                self.name)
+            return
 
         vals_list = [{
             'order_id': self.id,
@@ -140,7 +147,6 @@ class PurchaseOrder(models.Model):
 
         if vals_list:
             new_schedules = self.env['purchase.payment.schedule'].create(vals_list)
-            # Crear facturas para todos los hitos al calcular el calendario
             for schedule in new_schedules:
                 try:
                     schedule._ensure_invoice_exists()
@@ -150,12 +156,19 @@ class PurchaseOrder(models.Model):
 
     def write(self, vals):
         res = super().write(vals)
-        if {'bl_date', 'eta_date', 'payment_term_id'}.intersection(vals.keys()):
+        trigger_fields = {'bl_date', 'eta_date', 'payment_term_id'}
+        if trigger_fields.intersection(vals.keys()):
             for order in self.filtered(
                 lambda o: o.is_import_order and o.payment_term_id and
                 o.payment_term_id.somgroup_term_type != 'standard'
             ):
-                order._recalculate_payment_schedule()
+                # Solo recalcular si NO hay hitos con factura o pago ya registrado
+                has_committed = any(
+                    s.schedule_invoice_id or s.payment_ids
+                    for s in order.payment_schedule_ids
+                )
+                if not has_committed:
+                    order._recalculate_payment_schedule()
         return res
 
 
