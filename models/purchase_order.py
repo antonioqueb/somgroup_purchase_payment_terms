@@ -101,12 +101,12 @@ class PurchaseOrder(models.Model):
         if term_type in ['days_after_bl', 'advance_balance'] and not self.bl_date:
             return {'warning': {
                 'title': _('Fecha BL requerida'),
-                'message': _('El término "%s" requiere la Fecha BL para calcular el vencimiento del balance.') % self.payment_term_id.name,
+                'message': _('El término "%s" requiere la Fecha BL.') % self.payment_term_id.name,
             }}
         if term_type in ['against_delivery', 'advance_days_arrival'] and not self.eta_date:
             return {'warning': {
                 'title': _('ETA requerida'),
-                'message': _('El término "%s" requiere la ETA para programar el pago antes del arribo.') % self.payment_term_id.name,
+                'message': _('El término "%s" requiere la ETA.') % self.payment_term_id.name,
             }}
 
     def action_calculate_payment_schedule(self):
@@ -122,7 +122,6 @@ class PurchaseOrder(models.Model):
         pending = self.payment_schedule_ids.filtered(
             lambda l: l.state == 'pending' and not l.payment_ids)
         pending.unlink()
-        lines = self.payment_term_id.compute_due_dates(self)
         vals_list = [{
             'order_id': self.id,
             'payment_type': l['type'],
@@ -132,7 +131,7 @@ class PurchaseOrder(models.Model):
             'note': l['note'],
             'is_manual': l['is_manual'],
             'state': 'pending',
-        } for l in lines]
+        } for l in self.payment_term_id.compute_due_dates(self)]
         if vals_list:
             self.env['purchase.payment.schedule'].create(vals_list)
 
@@ -190,7 +189,6 @@ class PurchasePaymentSchedule(models.Model):
     payment_ids = fields.One2many(
         'account.payment', 'purchase_schedule_id', string='Pagos Contables', readonly=True)
 
-    # Campos regulares — sin compute+store para evitar que el ORM pise valores escritos
     state = fields.Selection([
         ('pending', 'Pendiente'),
         ('partial', 'Pago Parcial'),
@@ -243,14 +241,17 @@ class PurchasePaymentSchedule(models.Model):
     def _recompute_from_payments_by_order(self, extra_payments=None):
         """
         Sincroniza state/paid_amount desde contabilidad.
-        extra_payments: recordset de account.payment a incluir además de los de DB
-                        (útil cuando el pago recién creado aún no está en matched_entries)
+
+        extra_payments: account.payment recién creados/posteados en la misma
+        transacción que aún no son visibles via SQL search (mismo cursor).
+        Se incluyen directamente en el cálculo sin pasar por DB.
         """
         from datetime import date
 
-        extra_payments = extra_payments or self.env['account.payment']
-        orders = self.mapped('order_id')
+        Payment = self.env['account.payment']
+        extra_payments = extra_payments or Payment
 
+        orders = self.mapped('order_id')
         for order in orders:
             order_schedules = self.filtered(lambda s: s.order_id == order).sorted(
                 key=lambda s: (s.due_date or date.max)
@@ -258,8 +259,8 @@ class PurchasePaymentSchedule(models.Model):
             if not order_schedules:
                 continue
 
-            # ── Recolectar pagos via conciliaciones contables ─────────────
-            all_payments = self.env['account.payment']
+            # ── 1. Pagos via conciliaciones contables (facturas reconciliadas) ──
+            all_payments = Payment
 
             invoices = order.invoice_ids.filtered(
                 lambda inv: inv.move_type == 'in_invoice' and inv.state == 'posted'
@@ -278,35 +279,34 @@ class PurchasePaymentSchedule(models.Model):
                         if payment and payment.state == 'posted':
                             all_payments |= payment
 
-            # Pagos directamente vinculados vía purchase_schedule_id (búsqueda en DB)
-            direct_payments_db = self.env['account.payment'].search([
+            # ── 2. Pagos directamente vinculados via purchase_schedule_id (DB) ──
+            direct_payments_db = Payment.search([
                 ('purchase_schedule_id', 'in', order_schedules.ids),
                 ('state', '=', 'posted'),
             ])
             all_payments |= direct_payments_db
 
-            # Extra payments pasados explícitamente (recién creados, aún no en DB search)
-            order_extra = extra_payments.filtered(
+            # ── 3. extra_payments: recién creados en esta transacción ────────────
+            # Incluir los que tienen purchase_schedule_id de esta OC
+            extra_for_order = extra_payments.filtered(
                 lambda p: p.purchase_schedule_id and
-                p.purchase_schedule_id in order_schedules and
-                p.state == 'posted'
+                p.purchase_schedule_id in order_schedules
             )
-            all_payments |= order_extra
+            all_payments |= extra_for_order
 
-            # También extra payments sin vínculo directo pero cuya factura es de esta OC
-            for p in extra_payments.filtered(lambda p: not p.purchase_schedule_id and p.state == 'posted'):
-                for inv in p._get_reconciled_invoices() if hasattr(p, '_get_reconciled_invoices') else []:
-                    if inv.invoice_line_ids.mapped('purchase_line_id.order_id') & order:
-                        all_payments |= p
-                        break
+            # Incluir extra sin vínculo directo pero partner == proveedor de la OC
+            # (para pagos registrados sin pasar por el botón del hito)
+            for p in extra_payments.filtered(
+                lambda p: not p.purchase_schedule_id and
+                p.partner_id == order.partner_id
+            ):
+                all_payments |= p
 
-            # direct_payments para distribución priorizada
-            direct_payments = direct_payments_db | order_extra.filtered(
-                lambda p: p.purchase_schedule_id in order_schedules
-            )
+            # direct_payments para asignación priorizada por hito
+            direct_payments = direct_payments_db | extra_for_order
 
             total_paid = sum(all_payments.mapped('amount'))
-            _logger.info('[SOMGROUP] order %s all_payments=%s total_paid=%s',
+            _logger.info('[SOMGROUP] order %s | payments=%s | total_paid=%s',
                          order.name, all_payments.ids, total_paid)
 
             remaining_to_distribute = total_paid
@@ -335,8 +335,8 @@ class PurchasePaymentSchedule(models.Model):
 
                 new_state = self._resolve_state(schedule_paid, schedule.amount, schedule.due_date)
 
-                _logger.info('[SOMGROUP] schedule %s -> paid=%s state=%s',
-                             schedule.id, schedule_paid, new_state)
+                _logger.info('[SOMGROUP] schedule %s (%s) | paid=%s | state=%s',
+                             schedule.id, schedule.payment_type, schedule_paid, new_state)
 
                 vals = {
                     'paid_amount': schedule_paid,
@@ -423,7 +423,7 @@ class PurchasePaymentSchedule(models.Model):
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
     def action_sync_from_accounting(self):
-        _logger.info('[SOMGROUP] Manual sync triggered for schedules: %s', self.ids)
+        """Botón manual de resync — útil para registros históricos."""
         self._recompute_from_payments_by_order()
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
