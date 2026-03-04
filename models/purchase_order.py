@@ -441,7 +441,7 @@ class PurchasePaymentSchedule(models.Model):
         # Código típico en México: 1140 Anticipos a proveedores
         account = self.env['account.account'].search([
             ('code', 'like', '1140'),
-            ('deprecated', '=', False),
+            ('active', '=', True),
         ], limit=1)
         if account:
             return account
@@ -449,7 +449,7 @@ class PurchasePaymentSchedule(models.Model):
         # Último fallback: cualquier cuenta de gastos o activo circulante activa
         account = self.env['account.account'].search([
             ('account_type', 'in', ['expense', 'asset_current']),
-            ('deprecated', '=', False),
+            ('active', '=', True),
         ], limit=1)
         return account
 
