@@ -8,89 +8,28 @@ _logger = logging.getLogger(__name__)
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
-    # ─── Campos de importación ───────────────────────────────────────────────
-
-    bl_date = fields.Date(
-        string='Fecha BL',
-        help="Bill of Lading — Shipped on Board Date. Base para cálculo de vencimientos con crédito (N días después de BL)."
-    )
-    bl_number = fields.Char(
-        string='Número BL',
-        help="Número del Bill of Lading"
-    )
-    eta_date = fields.Date(
-        string='ETA',
-        help="Estimated Time of Arrival — fecha estimada de arribo al puerto mexicano. "
-             "Necesaria para términos contra entrega / CAD."
-    )
-    container_ids = fields.One2many(
-        'purchase.order.container',
-        'order_id',
-        string='Contenedores'
-    )
-    container_count = fields.Integer(
-        string='# Contenedores',
-        compute='_compute_container_count'
-    )
-
-    # ─── Campos de pago calculados ───────────────────────────────────────────
+    bl_date = fields.Date(string='Fecha BL')
+    bl_number = fields.Char(string='Número BL')
+    eta_date = fields.Date(string='ETA')
+    container_ids = fields.One2many('purchase.order.container', 'order_id', string='Contenedores')
+    container_count = fields.Integer(string='# Contenedores', compute='_compute_container_count')
 
     payment_schedule_ids = fields.One2many(
-        'purchase.payment.schedule',
-        'order_id',
-        string='Calendario de Pagos',
-        help="Pagos calculados automáticamente según el término de pago y fecha BL/ETA"
-    )
+        'purchase.payment.schedule', 'order_id', string='Calendario de Pagos')
     payment_schedule_warning = fields.Char(
-        string='Aviso de Pago',
-        compute='_compute_payment_warning',
-        store=False,
-    )
-    requires_bl_date = fields.Boolean(
-        string='Requiere Fecha BL',
-        compute='_compute_term_flags',
-        store=False,
-    )
-    requires_eta = fields.Boolean(
-        string='Requiere ETA',
-        compute='_compute_term_flags',
-        store=False,
-    )
-    is_import_order = fields.Boolean(
-        string='Es Orden de Importación',
-        default=False,
-        help="Activa los campos de BL, ETA y calendario de pagos de importación"
-    )
-    telex_release_required = fields.Boolean(
-        string='Requiere Telex Release',
-        compute='_compute_term_flags',
-        store=False,
-        help="El pago del balance debe completarse antes del arribo para obtener Telex Release"
-    )
+        string='Aviso de Pago', compute='_compute_payment_warning', store=False)
+    requires_bl_date = fields.Boolean(compute='_compute_term_flags', store=False)
+    requires_eta = fields.Boolean(compute='_compute_term_flags', store=False)
+    is_import_order = fields.Boolean(string='Es Orden de Importación', default=False)
+    telex_release_required = fields.Boolean(compute='_compute_term_flags', store=False)
     advance_amount = fields.Monetary(
-        string='Monto Anticipo',
-        compute='_compute_advance_amount',
-        store=False,
-        currency_field='currency_id',
-    )
+        string='Monto Anticipo', compute='_compute_advance_amount',
+        store=False, currency_field='currency_id')
     balance_amount = fields.Monetary(
-        string='Monto Balance',
-        compute='_compute_advance_amount',
-        store=False,
-        currency_field='currency_id',
-    )
-    next_payment_date = fields.Date(
-        string='Próximo Vencimiento',
-        compute='_compute_next_payment_date',
-        store=False,
-    )
-    overdue_payments = fields.Boolean(
-        string='Tiene Pagos Vencidos',
-        compute='_compute_next_payment_date',
-        store=False,
-    )
-
-    # ─── Computes ────────────────────────────────────────────────────────────
+        string='Monto Balance', compute='_compute_advance_amount',
+        store=False, currency_field='currency_id')
+    next_payment_date = fields.Date(compute='_compute_next_payment_date', store=False)
+    overdue_payments = fields.Boolean(compute='_compute_next_payment_date', store=False)
 
     @api.depends('container_ids')
     def _compute_container_count(self):
@@ -112,10 +51,8 @@ class PurchaseOrder(models.Model):
                  'payment_schedule_ids.payment_type')
     def _compute_advance_amount(self):
         for rec in self:
-            advances = rec.payment_schedule_ids.filtered(
-                lambda l: l.payment_type == 'advance')
-            balances = rec.payment_schedule_ids.filtered(
-                lambda l: l.payment_type != 'advance')
+            advances = rec.payment_schedule_ids.filtered(lambda l: l.payment_type == 'advance')
+            balances = rec.payment_schedule_ids.filtered(lambda l: l.payment_type != 'advance')
             rec.advance_amount = sum(advances.mapped('amount'))
             rec.balance_amount = sum(balances.mapped('amount'))
 
@@ -130,10 +67,7 @@ class PurchaseOrder(models.Model):
             overdue = pending.filtered(lambda l: l.due_date < today)
             rec.overdue_payments = bool(overdue)
             upcoming = pending.filtered(lambda l: l.due_date >= today)
-            if upcoming:
-                rec.next_payment_date = min(upcoming.mapped('due_date'))
-            else:
-                rec.next_payment_date = False
+            rec.next_payment_date = min(upcoming.mapped('due_date')) if upcoming else False
 
     @api.depends('payment_term_id', 'bl_date', 'eta_date',
                  'payment_schedule_ids', 'payment_schedule_ids.due_date',
@@ -152,13 +86,10 @@ class PurchaseOrder(models.Model):
             else:
                 upcoming = rec.payment_schedule_ids.filtered(
                     lambda l: l.state == 'pending' and l.due_date and
-                    today <= l.due_date <= today + timedelta(days=7)
-                )
+                    today <= l.due_date <= today + timedelta(days=7))
                 if upcoming:
                     warnings.append(f'🟡 Vence en 7 días: {upcoming[0].due_date}')
             rec.payment_schedule_warning = ' | '.join(warnings) if warnings else ''
-
-    # ─── Onchange / Actions ──────────────────────────────────────────────────
 
     @api.onchange('payment_term_id', 'bl_date', 'eta_date', 'amount_total', 'is_import_order')
     def _onchange_recalculate_schedule(self):
@@ -189,10 +120,8 @@ class PurchaseOrder(models.Model):
     def _recalculate_payment_schedule(self):
         self.ensure_one()
         pending = self.payment_schedule_ids.filtered(
-            lambda l: l.state == 'pending' and not l.payment_ids
-        )
+            lambda l: l.state == 'pending' and not l.payment_ids)
         pending.unlink()
-
         lines = self.payment_term_id.compute_due_dates(self)
         schedule_vals = []
         for line in lines:
@@ -216,8 +145,7 @@ class PurchaseOrder(models.Model):
             import_orders = self.filtered(
                 lambda o: o.is_import_order and
                 o.payment_term_id and
-                o.payment_term_id.somgroup_term_type != 'standard'
-            )
+                o.payment_term_id.somgroup_term_type != 'standard')
             for order in import_orders:
                 order._recalculate_payment_schedule()
         return res
@@ -231,23 +159,17 @@ class PurchaseOrderContainer(models.Model):
     order_id = fields.Many2one('purchase.order', string='Orden de Compra', ondelete='cascade', required=True)
     name = fields.Char(string='No. Contenedor', required=True)
     container_type = fields.Selection([
-        ('20', '20\''),
-        ('40', '40\''),
-        ('40hc', '40\' HC'),
+        ('20', '20\''), ('40', '40\''), ('40hc', '40\' HC'),
     ], string='Tipo', default='20')
     seal_number = fields.Char(string='Sello')
     tax_amount = fields.Monetary(string='Impuestos MXN', currency_field='currency_id')
     tax_state = fields.Selection([
-        ('pending', 'Pendiente'),
-        ('paid', 'Pagado'),
+        ('pending', 'Pendiente'), ('paid', 'Pagado'),
     ], string='Estado Impuesto', default='pending')
     tax_paid_date = fields.Date(string='Fecha Pago Imp.')
     pedimento = fields.Char(string='Pedimento')
     currency_id = fields.Many2one(
-        'res.currency',
-        default=lambda self: self.env.ref('base.MXN'),
-        string='Moneda'
-    )
+        'res.currency', default=lambda self: self.env.ref('base.MXN'), string='Moneda')
     notes = fields.Char(string='Notas')
 
 
@@ -269,17 +191,10 @@ class PurchasePaymentSchedule(models.Model):
     note = fields.Char(string='Nota Operativa')
     is_manual = fields.Boolean(string='Programación Manual', default=False)
 
-    # ── Relación con pagos contables reales ──────────────────────────────────
     payment_ids = fields.One2many(
-        'account.payment',
-        'purchase_schedule_id',
-        string='Pagos Contables',
-        readonly=True,
-    )
+        'account.payment', 'purchase_schedule_id', string='Pagos Contables', readonly=True)
 
-    # ── Estado y montos — campos regulares (sin compute) ─────────────────────
-    # IMPORTANTE: No usar compute+store aquí porque _recompute_from_payments_by_order
-    # escribe directamente y los computes asíncronos pisarían los valores calculados.
+    # Campos regulares — NO compute+store para evitar que el ORM pise valores escritos
     state = fields.Selection([
         ('pending', 'Pendiente'),
         ('partial', 'Pago Parcial'),
@@ -288,35 +203,16 @@ class PurchasePaymentSchedule(models.Model):
     ], string='Estado', default='pending', store=True, tracking=True)
 
     paid_amount = fields.Monetary(
-        string='Monto Pagado',
-        store=True,
-        default=0.0,
-        currency_field='currency_id',
-    )
+        string='Monto Pagado', store=True, default=0.0, currency_field='currency_id')
     remaining_amount = fields.Monetary(
-        string='Saldo Pendiente',
-        store=True,
-        default=0.0,
-        currency_field='currency_id',
-    )
-    paid_date = fields.Date(
-        string='Fecha Pago Real',
-        store=True,
-    )
+        string='Saldo Pendiente', store=True, default=0.0, currency_field='currency_id')
+    paid_date = fields.Date(string='Fecha Pago Real', store=True)
     payment_reference = fields.Char(string='Referencia Pago / SPEI')
 
     days_until_due = fields.Integer(
-        string='Días para Vencer',
-        compute='_compute_days_until_due',
-        store=False,
-    )
+        string='Días para Vencer', compute='_compute_days_until_due', store=False)
     alert_color = fields.Char(
-        string='Color Alerta',
-        compute='_compute_days_until_due',
-        store=False,
-    )
-
-    # ─── Compute días restantes (no conflictivo, no store) ───────────────────
+        string='Color Alerta', compute='_compute_days_until_due', store=False)
 
     @api.depends('due_date', 'state')
     def _compute_days_until_due(self):
@@ -329,17 +225,10 @@ class PurchasePaymentSchedule(models.Model):
             elif rec.due_date:
                 delta = (rec.due_date - today).days
                 rec.days_until_due = delta
-                if delta < 0:
-                    rec.alert_color = 'red'
-                elif delta <= 7:
-                    rec.alert_color = 'orange'
-                else:
-                    rec.alert_color = 'gray'
+                rec.alert_color = 'red' if delta < 0 else ('orange' if delta <= 7 else 'gray')
             else:
                 rec.days_until_due = 0
                 rec.alert_color = 'blue'
-
-    # ─── Helper interno ──────────────────────────────────────────────────────
 
     def _resolve_state(self, paid_amount, amount, due_date):
         from datetime import date
@@ -352,8 +241,6 @@ class PurchasePaymentSchedule(models.Model):
             return 'overdue'
         return 'pending'
 
-    # ─── Métodos de recálculo desde contabilidad ─────────────────────────────
-
     def _recompute_from_payments(self):
         """Punto de entrada unificado."""
         self._recompute_from_payments_by_order()
@@ -361,11 +248,14 @@ class PurchasePaymentSchedule(models.Model):
     def _recompute_from_payments_by_order(self):
         """
         Busca todos los pagos posted vinculados a facturas de la OC via
-        conciliaciones contables y escribe directamente los campos de estado.
+        conciliaciones contables y escribe directamente state, paid_amount, etc.
         """
         from datetime import date
 
         orders = self.mapped('order_id')
+        _logger.info('[SOMGROUP] _recompute_from_payments_by_order - orders: %s, schedules: %s',
+                     orders.ids, self.ids)
+
         for order in orders:
             order_schedules = self.filtered(lambda s: s.order_id == order).sorted(
                 key=lambda s: (s.due_date or date.max)
@@ -373,23 +263,34 @@ class PurchasePaymentSchedule(models.Model):
             if not order_schedules:
                 continue
 
-            # ── Recolectar pagos via conciliaciones ───────────────────────
+            # ── Recolectar pagos via conciliaciones contables ─────────────
             all_payments = self.env['account.payment']
 
             invoices = order.invoice_ids.filtered(
                 lambda inv: inv.move_type == 'in_invoice' and inv.state == 'posted'
             )
+            _logger.info('[SOMGROUP] order %s posted invoices: %s', order.name, invoices.ids)
+
             for inv in invoices:
-                for line in inv.line_ids.filtered(
+                payable_lines = inv.line_ids.filtered(
                     lambda l: l.account_id.account_type == 'liability_payable'
-                ):
-                    for matched in (line.matched_debit_ids | line.matched_credit_ids):
+                )
+                _logger.info('[SOMGROUP] invoice %s payable lines: %s', inv.name, payable_lines.ids)
+                for line in payable_lines:
+                    all_matched = line.matched_debit_ids | line.matched_credit_ids
+                    _logger.info('[SOMGROUP] line %s matched entries: %s', line.id,
+                                 [(m.id, m.debit_move_id.id, m.credit_move_id.id) for m in all_matched])
+                    for matched in all_matched:
                         counterpart = (
                             matched.debit_move_id
                             if line == matched.credit_move_id
                             else matched.credit_move_id
                         )
                         payment = counterpart.move_id.payment_id
+                        _logger.info('[SOMGROUP] counterpart move %s, payment_id: %s, state: %s',
+                                     counterpart.move_id.id,
+                                     payment.id if payment else None,
+                                     payment.state if payment else None)
                         if payment and payment.state == 'posted':
                             all_payments |= payment
 
@@ -398,9 +299,14 @@ class PurchasePaymentSchedule(models.Model):
                 ('purchase_schedule_id', 'in', order_schedules.ids),
                 ('state', '=', 'posted'),
             ])
+            _logger.info('[SOMGROUP] order %s direct_payments: %s', order.name, direct_payments.ids)
             all_payments |= direct_payments
 
-            remaining_to_distribute = sum(all_payments.mapped('amount'))
+            total_paid = sum(all_payments.mapped('amount'))
+            _logger.info('[SOMGROUP] order %s total_paid from all_payments (%s): %s',
+                         order.name, all_payments.ids, total_paid)
+
+            remaining_to_distribute = total_paid
 
             # ── Distribuir cronológicamente ───────────────────────────────
             for schedule in order_schedules:
@@ -427,6 +333,11 @@ class PurchasePaymentSchedule(models.Model):
 
                 new_state = self._resolve_state(schedule_paid, schedule.amount, schedule.due_date)
 
+                _logger.info(
+                    '[SOMGROUP] schedule %s (type=%s, amount=%s) -> paid=%s, state=%s',
+                    schedule.id, schedule.payment_type, schedule.amount, schedule_paid, new_state
+                )
+
                 vals = {
                     'paid_amount': schedule_paid,
                     'remaining_amount': max(0.0, (schedule.amount or 0.0) - schedule_paid),
@@ -435,10 +346,8 @@ class PurchasePaymentSchedule(models.Model):
                 if paid_date:
                     vals['paid_date'] = paid_date
 
-                # sudo() para evitar bloqueos de acceso en contextos de pago
                 schedule.sudo().write(vals)
-
-    # ─── Acción: Registrar pago sobre factura vinculada ─────────────────────
+                _logger.info('[SOMGROUP] schedule %s written OK - state now: %s', schedule.id, schedule.state)
 
     def action_register_payment(self):
         self.ensure_one()
@@ -492,8 +401,6 @@ class PurchasePaymentSchedule(models.Model):
                 },
             }
 
-    # ─── Acción legacy: Marcar pagado manualmente ────────────────────────────
-
     def action_mark_paid(self):
         from datetime import date
         for rec in self:
@@ -517,13 +424,11 @@ class PurchasePaymentSchedule(models.Model):
             rec.write({'state': 'overdue'})
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
-    # ─── Acción: Forzar sincronización manual ────────────────────────────────
-
     def action_sync_from_accounting(self):
+        """Botón manual para forzar resync — útil para hitos históricos."""
+        _logger.info('[SOMGROUP] action_sync_from_accounting called for schedules: %s', self.ids)
         self._recompute_from_payments_by_order()
         return {'type': 'ir.actions.client', 'tag': 'reload'}
-
-    # ─── Smart button: ver pagos vinculados ──────────────────────────────────
 
     def action_view_payments(self):
         self.ensure_one()
