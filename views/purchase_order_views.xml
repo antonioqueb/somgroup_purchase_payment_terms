@@ -94,6 +94,7 @@
                             <field name="paid_date"         optional="show" string="Fecha Pago"/>
                             <field name="paid_amount"       optional="show" string="Monto Pagado" readonly="1"/>
                             <field name="remaining_amount"  optional="show" string="Saldo" readonly="1"/>
+                            <field name="advance_invoice_id" optional="show" string="Fact. Anticipo" readonly="1"/>
                             <field name="payment_reference" string="Referencia"/>
                             <field name="is_manual" widget="boolean" string="Manual"/>
                             <field name="note"              string="Nota"/>
@@ -102,6 +103,11 @@
                                     type="object"
                                     class="btn btn-sm btn-success"
                                     invisible="state == 'paid'"/>
+                            <button name="action_view_advance_invoice"
+                                    string="📄 Ver Factura"
+                                    type="object"
+                                    class="btn btn-sm btn-info"
+                                    invisible="not advance_invoice_id"/>
                             <button name="action_view_payments"
                                     string="Ver Pagos"
                                     type="object"
@@ -190,6 +196,15 @@
                                 invisible="not payment_ids">
                             <field name="payment_ids" widget="statinfo" string="Pagos"/>
                         </button>
+                        <button name="action_view_advance_invoice"
+                                type="object"
+                                class="oe_stat_button"
+                                icon="fa-file-text-o"
+                                invisible="not advance_invoice_id">
+                            <div class="o_stat_info">
+                                <span class="o_stat_text">Fact. Anticipo</span>
+                            </div>
+                        </button>
                     </div>
 
                     <div class="o_form_title mb-3">
@@ -207,7 +222,7 @@
                             <field name="is_manual"    string="Entrada Manual"/>
                         </group>
                         <group string="¿Cuándo se paga?">
-                            <field name="due_date"      string="Fecha Límite"/>
+                            <field name="due_date"       string="Fecha Límite"/>
                             <field name="days_until_due" string="Días Restantes" readonly="1"/>
                         </group>
                     </group>
@@ -221,6 +236,12 @@
                             <field name="paid_date"          string="Fecha de Pago"/>
                             <field name="payment_reference"  string="Referencia / Folio"/>
                         </group>
+                        <group string="Documentos Contables">
+                            <field name="advance_invoice_id" string="Factura de Anticipo" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group col="2">
                         <group string="Notas Adicionales">
                             <field name="note" nolabel="1"
                                    placeholder="Escribe aquí cualquier observación..."
@@ -257,24 +278,25 @@
                   decoration-success="state == 'paid'"
                   decoration-info="state == 'partial'"
                   decoration-warning="state == 'pending'">
-                <field name="order_id"          string="Orden de Compra"/>
-                <field name="payment_type"      string="Tipo"/>
-                <field name="percent"           string="%"/>
-                <field name="amount"            string="Monto"/>
+                <field name="order_id"           string="Orden de Compra"/>
+                <field name="payment_type"       string="Tipo"/>
+                <field name="percent"            string="%"/>
+                <field name="amount"             string="Monto"/>
                 <field name="currency_id"/>
-                <field name="due_date"          string="Fecha Límite"/>
-                <field name="days_until_due"    string="Días"/>
+                <field name="due_date"           string="Fecha Límite"/>
+                <field name="days_until_due"     string="Días"/>
                 <field name="state" widget="badge"
                        decoration-success="state == 'paid'"
                        decoration-info="state == 'partial'"
                        decoration-danger="state == 'overdue'"
                        decoration-warning="state == 'pending'"/>
-                <field name="paid_date"         string="Fecha Pago"/>
-                <field name="paid_amount"       string="Pagado" readonly="1"/>
-                <field name="remaining_amount"  string="Saldo" readonly="1"/>
-                <field name="payment_reference" string="Referencia"/>
-                <field name="is_manual"         string="Manual"/>
-                <field name="note"              string="Nota"/>
+                <field name="paid_date"          string="Fecha Pago"/>
+                <field name="paid_amount"        string="Pagado" readonly="1"/>
+                <field name="remaining_amount"   string="Saldo" readonly="1"/>
+                <field name="advance_invoice_id" optional="show" string="Fact. Anticipo" readonly="1"/>
+                <field name="payment_reference"  string="Referencia"/>
+                <field name="is_manual"          string="Manual"/>
+                <field name="note"               string="Nota"/>
                 <button name="action_register_payment"
                         string="💵 Pagar"
                         type="object"
@@ -324,7 +346,6 @@
             </gantt>
         </field>
     </record>
-
 
     <record id="view_purchase_payment_schedule_search" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.search</field>

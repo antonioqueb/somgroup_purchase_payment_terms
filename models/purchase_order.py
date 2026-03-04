@@ -189,6 +189,15 @@ class PurchasePaymentSchedule(models.Model):
     payment_ids = fields.One2many(
         'account.payment', 'purchase_schedule_id', string='Pagos Contables', readonly=True)
 
+    # Factura de anticipo generada automáticamente para este hito
+    advance_invoice_id = fields.Many2one(
+        'account.move',
+        string='Factura de Anticipo',
+        readonly=True,
+        ondelete='set null',
+        help='Vendor bill de anticipo generada para este hito. Se reconcilia con la factura final.',
+    )
+
     state = fields.Selection([
         ('pending', 'Pendiente'),
         ('partial', 'Pago Parcial'),
@@ -242,9 +251,11 @@ class PurchasePaymentSchedule(models.Model):
         """
         Sincroniza state/paid_amount desde contabilidad.
 
-        extra_payments: account.payment recién creados/posteados en la misma
-        transacción que aún no son visibles via SQL search (mismo cursor).
-        Se incluyen directamente en el cálculo sin pasar por DB.
+        Fuentes de pago que considera (por orden de prioridad):
+          1. Pagos reconciliados contra facturas de la OC (in_invoice posted)
+          2. Pagos vinculados directamente via purchase_schedule_id (DB)
+          3. Pagos reconciliados contra advance_invoice_id del hito
+          4. extra_payments: recién creados en la misma transacción (mismo cursor)
         """
         from datetime import date
 
@@ -259,7 +270,7 @@ class PurchasePaymentSchedule(models.Model):
             if not order_schedules:
                 continue
 
-            # ── 1. Pagos via conciliaciones contables (facturas reconciliadas) ──
+            # ── 1. Pagos via facturas normales reconciliadas ──────────────────
             all_payments = Payment
 
             invoices = order.invoice_ids.filtered(
@@ -286,23 +297,36 @@ class PurchasePaymentSchedule(models.Model):
             ])
             all_payments |= direct_payments_db
 
-            # ── 3. extra_payments: recién creados en esta transacción ────────────
-            # Incluir los que tienen purchase_schedule_id de esta OC
+            # ── 3. Pagos reconciliados contra advance_invoice_id de cada hito ──
+            for schedule in order_schedules:
+                if schedule.advance_invoice_id and schedule.advance_invoice_id.state == 'posted':
+                    adv_inv = schedule.advance_invoice_id
+                    for line in adv_inv.line_ids.filtered(
+                        lambda l: l.account_id.account_type == 'liability_payable'
+                    ):
+                        for matched in (line.matched_debit_ids | line.matched_credit_ids):
+                            counterpart = (
+                                matched.debit_move_id
+                                if line == matched.credit_move_id
+                                else matched.credit_move_id
+                            )
+                            payment = counterpart.move_id.payment_id
+                            if payment and payment.state == 'posted':
+                                all_payments |= payment
+
+            # ── 4. extra_payments: recién creados en esta transacción ─────────
             extra_for_order = extra_payments.filtered(
                 lambda p: p.purchase_schedule_id and
                 p.purchase_schedule_id in order_schedules
             )
             all_payments |= extra_for_order
 
-            # Incluir extra sin vínculo directo pero partner == proveedor de la OC
-            # (para pagos registrados sin pasar por el botón del hito)
             for p in extra_payments.filtered(
                 lambda p: not p.purchase_schedule_id and
                 p.partner_id == order.partner_id
             ):
                 all_payments |= p
 
-            # direct_payments para asignación priorizada por hito
             direct_payments = direct_payments_db | extra_for_order
 
             total_paid = sum(all_payments.mapped('amount'))
@@ -317,17 +341,39 @@ class PurchasePaymentSchedule(models.Model):
                 )
                 direct_amount = sum(direct.mapped('amount'))
 
-                if direct_amount > 0:
-                    schedule_paid = min(direct_amount, schedule.amount)
-                    remaining_to_distribute = max(0.0, remaining_to_distribute - direct_amount)
+                # También incluir pagos reconciliados contra advance_invoice de este hito
+                adv_inv_payments = Payment
+                if schedule.advance_invoice_id and schedule.advance_invoice_id.state == 'posted':
+                    adv_inv = schedule.advance_invoice_id
+                    for line in adv_inv.line_ids.filtered(
+                        lambda l: l.account_id.account_type == 'liability_payable'
+                    ):
+                        for matched in (line.matched_debit_ids | line.matched_credit_ids):
+                            counterpart = (
+                                matched.debit_move_id
+                                if line == matched.credit_move_id
+                                else matched.credit_move_id
+                            )
+                            payment = counterpart.move_id.payment_id
+                            if payment and payment.state == 'posted':
+                                adv_inv_payments |= payment
+
+                adv_inv_amount = sum(adv_inv_payments.mapped('amount'))
+
+                if direct_amount > 0 or adv_inv_amount > 0:
+                    schedule_paid = min(direct_amount + adv_inv_amount, schedule.amount)
+                    remaining_to_distribute = max(
+                        0.0, remaining_to_distribute - (direct_amount + adv_inv_amount)
+                    )
                 elif remaining_to_distribute > 0:
                     schedule_paid = min(remaining_to_distribute, schedule.amount)
                     remaining_to_distribute -= schedule_paid
                 else:
                     schedule_paid = 0.0
 
-                if direct:
-                    paid_date = direct.sorted('date')[-1].date
+                all_direct = direct | adv_inv_payments
+                if all_direct:
+                    paid_date = all_direct.sorted('date')[-1].date
                 elif schedule_paid > 0 and all_payments:
                     paid_date = all_payments.sorted('date')[-1].date
                 else:
@@ -348,19 +394,137 @@ class PurchasePaymentSchedule(models.Model):
 
                 schedule.sudo().write(vals)
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Producto de anticipo — buscado/creado una sola vez por compañía
+    # ──────────────────────────────────────────────────────────────────────────
+    def _get_advance_product(self):
+        """Devuelve (o crea) el producto de servicio usado para facturas de anticipo."""
+        Product = self.env['product.product']
+
+        # 1. Buscar por referencia interna estándar de Odoo (purchase_stock lo crea a veces)
+        product = self.env.ref('purchase.product_product_advance', raise_if_not_found=False)
+        if product:
+            return product
+
+        # 2. Buscar por nombre
+        product = Product.search(
+            [('name', '=', 'Anticipo a Proveedor'), ('type', '=', 'service')], limit=1
+        )
+        if product:
+            return product
+
+        # 3. Crear
+        return Product.create({
+            'name': 'Anticipo a Proveedor',
+            'type': 'service',
+            'purchase_ok': True,
+            'sale_ok': False,
+            'description': 'Producto para registrar anticipos a proveedores en importaciones.',
+        })
+
+    def _get_advance_expense_account(self, product):
+        """Devuelve la cuenta de gastos/anticipos para la línea de la factura de anticipo."""
+        # Primero intentar la cuenta del producto
+        account = (
+            product.property_account_expense_id
+            or product.categ_id.property_account_expense_categ_id
+        )
+        if account:
+            return account
+
+        # Fallback: buscar cuenta de anticipos a proveedores (cuenta de activo típica)
+        # Código típico en México: 1140 Anticipos a proveedores
+        account = self.env['account.account'].search([
+            ('code', 'like', '1140'),
+            ('company_id', '=', self.env.company.id),
+        ], limit=1)
+        if account:
+            return account
+
+        # Último fallback: cualquier cuenta de gastos activa
+        account = self.env['account.account'].search([
+            ('account_type', 'in', ['expense', 'asset_current']),
+            ('deprecated', '=', False),
+            ('company_id', '=', self.env.company.id),
+        ], limit=1)
+        return account
+
+    def _create_advance_invoice(self):
+        """
+        Crea una vendor bill (in_invoice) de anticipo para este hito y la postea.
+        La factura queda lista para recibir un pago via account.payment.register.
+        Al llegar la factura real del proveedor, el contador deberá aplicar
+        el crédito de anticipo manualmente o via 'add outstanding credits'.
+        """
+        self.ensure_one()
+        order = self.order_id
+
+        if self.advance_invoice_id:
+            # Ya existe — no crear duplicado
+            _logger.info(
+                '[SOMGROUP] schedule %s ya tiene advance_invoice_id=%s, reutilizando.',
+                self.id, self.advance_invoice_id.id
+            )
+            return self.advance_invoice_id
+
+        product = self._get_advance_product()
+        account = self._get_advance_expense_account(product)
+
+        if not account:
+            raise UserError(_(
+                'No se encontró una cuenta contable para la línea del anticipo. '
+                'Configure la cuenta de gastos en el producto "Anticipo a Proveedor" '
+                'o en su categoría.'
+            ))
+
+        type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
+        ref = '{} — {} ({:.0f}%)'.format(order.name, type_label, self.percent)
+
+        invoice_vals = {
+            'move_type': 'in_invoice',
+            'partner_id': order.partner_id.id,
+            'currency_id': order.currency_id.id,
+            'invoice_date': fields.Date.today(),
+            # NO se asigna purchase_id para evitar que Odoo jale todas las líneas de la OC
+            'narration': 'Anticipo OC: {} | {}'.format(order.name, self.note or ''),
+            'ref': ref,
+            'invoice_line_ids': [(0, 0, {
+                'name': '[ANTICIPO] {}'.format(ref),
+                'product_id': product.id,
+                'quantity': 1.0,
+                'price_unit': self.amount,
+                'account_id': account.id,
+            })],
+        }
+
+        invoice = self.env['account.move'].create(invoice_vals)
+        invoice.action_post()
+
+        self.write({'advance_invoice_id': invoice.id})
+
+        _logger.info(
+            '[SOMGROUP] Creada factura de anticipo %s (id=%s) para schedule %s de OC %s',
+            invoice.name, invoice.id, self.id, order.name
+        )
+        return invoice
+
     def action_register_payment(self):
         self.ensure_one()
         if self.state == 'paid':
             raise UserError(_('Este hito ya está completamente pagado.'))
 
         order = self.order_id
-        invoices = order.invoice_ids.filtered(
+
+        # ── Caso 1: hay facturas reales pendientes de pago ───────────────────
+        real_invoices = order.invoice_ids.filtered(
             lambda inv: inv.move_type == 'in_invoice'
             and inv.state == 'posted'
             and inv.payment_state in ('not_paid', 'partial')
+            # Excluir advance_invoice_id de otros hitos para no mezclar
+            and inv.id != (self.advance_invoice_id.id if self.advance_invoice_id else False)
         )
 
-        if invoices:
+        if real_invoices:
             return {
                 'name': _('Registrar Pago'),
                 'type': 'ir.actions.act_window',
@@ -369,36 +533,45 @@ class PurchasePaymentSchedule(models.Model):
                 'target': 'new',
                 'context': {
                     'active_model': 'account.move',
-                    'active_ids': invoices.ids,
+                    'active_ids': real_invoices.ids,
                     'default_amount': min(
                         self.remaining_amount or self.amount,
-                        sum(invoices.mapped('amount_residual'))
+                        sum(real_invoices.mapped('amount_residual'))
                     ),
                     'default_purchase_schedule_id': self.id,
                 },
             }
-        else:
-            return {
-                'name': _('Registrar Anticipo al Proveedor'),
-                'type': 'ir.actions.act_window',
-                'res_model': 'account.payment',
-                'view_mode': 'form',
-                'target': 'new',
-                'context': {
-                    'default_payment_type': 'outbound',
-                    'default_partner_type': 'supplier',
-                    'default_partner_id': order.partner_id.id,
-                    'default_amount': self.remaining_amount or self.amount,
-                    'default_currency_id': self.currency_id.id,
-                    'default_purchase_schedule_id': self.id,
-                    'default_date': fields.Date.today(),
-                    'default_ref': '{} - {} ({:.0f}%)'.format(
-                        order.name,
-                        dict(self._fields['payment_type'].selection).get(self.payment_type, ''),
-                        self.percent,
-                    ),
-                },
-            }
+
+        # ── Caso 2: anticipo — crear (o reutilizar) factura de anticipo ──────
+        # Esto garantiza que el pago quede contablemente reconciliado
+        advance_invoice = self._create_advance_invoice()
+
+        # Si la factura ya estaba pagada (edge case), marcar y salir
+        if advance_invoice.payment_state == 'paid':
+            self.sudo().write({
+                'paid_amount': self.amount,
+                'remaining_amount': 0.0,
+                'state': 'paid',
+                'paid_date': fields.Date.today(),
+            })
+            return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+        return {
+            'name': _('Registrar Anticipo'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.payment.register',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'active_model': 'account.move',
+                'active_ids': [advance_invoice.id],
+                'default_amount': min(
+                    self.remaining_amount or self.amount,
+                    advance_invoice.amount_residual,
+                ),
+                'default_purchase_schedule_id': self.id,
+            },
+        }
 
     def action_mark_paid(self):
         from datetime import date
@@ -435,4 +608,17 @@ class PurchasePaymentSchedule(models.Model):
             'res_model': 'account.payment',
             'view_mode': 'list,form',
             'domain': [('purchase_schedule_id', '=', self.id)],
+        }
+
+    def action_view_advance_invoice(self):
+        """Botón para abrir la factura de anticipo del hito."""
+        self.ensure_one()
+        if not self.advance_invoice_id:
+            raise UserError(_('Este hito no tiene factura de anticipo generada.'))
+        return {
+            'name': _('Factura de Anticipo'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.move',
+            'view_mode': 'form',
+            'res_id': self.advance_invoice_id.id,
         }
