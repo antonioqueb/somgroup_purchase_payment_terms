@@ -39,15 +39,19 @@ class AccountPayment(models.Model):
         return orders
 
     def _get_reconciled_invoices(self):
+        """
+        Odoo 19: account.payment NO tiene line_ids directamente.
+        Las líneas están en payment.move_id.line_ids.
+        """
         self.ensure_one()
         if hasattr(self, 'reconciled_bill_ids') and self.reconciled_bill_ids:
             return self.reconciled_bill_ids
         if hasattr(self, 'reconciled_invoice_ids') and self.reconciled_invoice_ids:
             return self.reconciled_invoice_ids
         moves = self.env['account.move']
-        if not self.line_ids:
+        if not self.move_id:
             return moves
-        for line in self.line_ids.filtered(
+        for line in self.move_id.line_ids.filtered(
             lambda l: l.account_id.account_type == 'liability_payable'
         ):
             for matched in (line.matched_debit_ids | line.matched_credit_ids):
