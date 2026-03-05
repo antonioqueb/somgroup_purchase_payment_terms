@@ -195,6 +195,10 @@ class PurchasePaymentSchedule(models.Model):
     _name = 'purchase.payment.schedule'
     _description = 'Calendario de Pagos - Importación'
     _order = 'due_date asc, id asc'
+    _rec_name = 'display_name_computed'
+
+    display_name_computed = fields.Char(
+        string='Nombre', compute='_compute_display_name_computed', store=False)
 
     order_id = fields.Many2one(
         'purchase.order', string='Orden de Compra', ondelete='cascade', required=True)
@@ -209,6 +213,22 @@ class PurchasePaymentSchedule(models.Model):
     due_date = fields.Date(string='Fecha Vencimiento')
     note = fields.Char(string='Nota Operativa')
     is_manual = fields.Boolean(string='Programación Manual', default=False)
+
+    @api.depends('order_id.name', 'payment_type', 'amount', 'currency_id', 'percent')
+    def _compute_display_name_computed(self):
+        type_labels = dict(self._fields['payment_type'].selection)
+        for rec in self:
+            parts = []
+            if rec.order_id:
+                parts.append(rec.order_id.name or '')
+            if rec.payment_type:
+                parts.append(type_labels.get(rec.payment_type, ''))
+            if rec.amount:
+                currency = rec.currency_id.symbol if rec.currency_id else '$'
+                parts.append('{}{:,.2f}'.format(currency, rec.amount))
+            if rec.percent:
+                parts.append('({}%)'.format(int(rec.percent)))
+            rec.display_name_computed = ' — '.join(parts) if parts else 'Pago'
 
     payment_ids = fields.One2many(
         'account.payment', 'purchase_schedule_id', string='Pagos Contables', readonly=True)

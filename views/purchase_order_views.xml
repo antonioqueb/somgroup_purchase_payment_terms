@@ -60,7 +60,7 @@
                                 type="object"
                                 class="btn btn-primary btn-sm"/>
                         <span class="text-muted small ms-2">
-                            Genera los hitos de pago. Anticipos = pago directo (sin factura).
+                            Genera los hitos de pago. Anticipos = pago directo.
                             Balance = factura al 100% donde se reconcilian los anticipos.
                         </span>
                     </div>
@@ -107,32 +107,6 @@
                             <field name="payment_ids" column_invisible="1"/>
                         </list>
                     </field>
-
-                    <separator string="🏗️ Contenedores"/>
-
-                    <field name="container_ids" nolabel="1">
-                        <list editable="bottom"
-                              decoration-success="tax_state == 'paid'"
-                              decoration-muted="tax_state == 'pending'">
-                            <field name="name"          string="No. Contenedor"
-                                   placeholder="TCKU1234567"/>
-                            <field name="container_type" string="Tipo"/>
-                            <field name="seal_number"   string="No. Sello"/>
-                            <field name="pedimento"     string="Pedimento"/>
-                            <field name="tax_amount"    string="Monto Impuesto"/>
-                            <field name="currency_id"   column_invisible="1"/>
-                            <field name="tax_state" widget="badge"
-                                   string="Estado Impuesto"
-                                   decoration-success="tax_state == 'paid'"
-                                   decoration-warning="tax_state == 'pending'"/>
-                            <field name="tax_paid_date" optional="hide" string="Fecha Pago Imp."/>
-                            <field name="notes"         string="Notas"/>
-                        </list>
-                    </field>
-
-                    <group string="📊 Resumen" col="2">
-                        <field name="container_count" string="Total de Contenedores" readonly="1"/>
-                    </group>
 
                 </page>
             </xpath>
@@ -306,8 +280,10 @@
                       event_limit="5">
                 <field name="order_id"     filters="1"/>
                 <field name="payment_type" filters="1"/>
-                <field name="amount"       string="Monto"/>
-                <field name="state"        string="Estado"/>
+                <field name="amount"/>
+                <field name="currency_id"/>
+                <field name="state"/>
+                <field name="note"/>
             </calendar>
         </field>
     </record>
@@ -328,8 +304,10 @@
                 <field name="order_id"/>
                 <field name="payment_type"/>
                 <field name="amount"/>
+                <field name="currency_id"/>
                 <field name="state"/>
                 <field name="due_date"/>
+                <field name="note"/>
             </gantt>
         </field>
     </record>
