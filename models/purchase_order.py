@@ -339,18 +339,28 @@ class PurchasePaymentSchedule(models.Model):
         """
         Busca pagos de anticipo registrados para esta OC usando el memo/ref
         que contiene el nombre de la OC.
+        También busca en el ref del asiento contable (move_id.ref).
         """
         Payment = self.env['account.payment']
-        # Buscar pagos cuyo memo contenga el nombre de la OC
-        payments = Payment.search([
+
+        # Buscar por purchase_schedule_id primero (más confiable)
+        advance_schedules = order.payment_schedule_ids.filtered(
+            lambda s: s.payment_type in ('advance', 'second_advance') and s.advance_payment_id
+        )
+        direct_payments = advance_schedules.mapped('advance_payment_id').filtered(
+            lambda p: p.state == 'posted'
+        )
+
+        # Buscar por memo/ref en el asiento contable del pago
+        move_payments = Payment.search([
             ('partner_id', '=', order.partner_id.id),
             ('state', '=', 'posted'),
             ('payment_type', '=', 'outbound'),
-            '|',
-            ('ref', 'ilike', order.name),
-            ('memo', 'ilike', order.name),
+            ('move_id.ref', 'ilike', order.name),
+            ('id', 'not in', direct_payments.ids),
         ])
-        return payments
+
+        return direct_payments | move_payments
 
     # ──────────────────────────────────────────────────────────────────────────
     # NUEVO FLUJO: Anticipo = Pago directo, Balance = Factura 100%
@@ -393,7 +403,8 @@ class PurchasePaymentSchedule(models.Model):
                 'Configure uno antes de registrar anticipos.'
             ))
 
-        # Cuenta de outstanding payments (destino del pago)
+        Payment = self.env['account.payment']
+
         payment_vals = {
             'payment_type': 'outbound',
             'partner_type': 'supplier',
@@ -402,16 +413,20 @@ class PurchasePaymentSchedule(models.Model):
             'currency_id': order.currency_id.id,
             'journal_id': journal.id,
             'date': fields.Date.today(),
-            'ref': memo,
             'purchase_schedule_id': self.id,
         }
 
-        # Odoo 19: memo field — usar ref si memo no existe
-        Payment = self.env['account.payment']
+        # Odoo 19: detectar campo correcto para memo/referencia
         if 'memo' in Payment._fields:
             payment_vals['memo'] = memo
+        elif 'ref' in Payment._fields:
+            payment_vals['ref'] = memo
 
         payment = Payment.create(payment_vals)
+
+        # Asegurar que el asiento contable tenga la referencia en ref
+        if payment.move_id:
+            payment.move_id.write({'ref': memo})
         payment.action_post()
 
         self.write({
@@ -518,15 +533,13 @@ class PurchasePaymentSchedule(models.Model):
             if sched.advance_payment_id.state == 'posted':
                 advance_payments |= sched.advance_payment_id
 
-        # 2. Pagos encontrados por memo/ref que contengan el nombre de la OC
+        # 2. Pagos encontrados por ref en el asiento contable
         memo_payments = Payment.search([
             ('partner_id', '=', order.partner_id.id),
             ('state', '=', 'posted'),
             ('payment_type', '=', 'outbound'),
             ('id', 'not in', advance_payments.ids),
-            '|',
-            ('ref', 'ilike', order.name),
-            *([('memo', 'ilike', order.name)] if 'memo' in Payment._fields else []),
+            ('move_id.ref', 'ilike', order.name),
         ])
         advance_payments |= memo_payments
 
