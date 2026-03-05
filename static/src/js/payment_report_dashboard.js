@@ -2,28 +2,24 @@
 
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
-import { Component, useState, onWillStart } from "@odoo/owl";
-import { _t } from "@web/core/l10n/translation";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SOMGROUP — Reporte de Pagos a Proveedores
-// Dashboard con resumen ejecutivo + detalle por sección + proyección multi-mes
-// ─────────────────────────────────────────────────────────────────────────────
+import { Component, useState, onWillStart, onMounted, useRef } from "@odoo/owl";
 
 class PaymentReportDashboard extends Component {
-    static template = "somgroup_import.PaymentReportDashboard";
-    static props = ["*"];
 
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
+        this.rootRef = useRef("rootEl");
+
+        // Force scroll on Odoo Enterprise ancestor containers
+        onMounted(() => {
+            this._fixScroll();
+        });
+
         this.state = useState({
             loading: true,
-            // Filtros
             selectedMonth: this._getCurrentMonth(),
             selectedYear: this._getCurrentYear(),
-            availableMonths: [],
-            // Resumen ejecutivo
             summary: {
                 total_usd: 0,
                 total_mxn: 0,
@@ -38,7 +34,6 @@ class PaymentReportDashboard extends Component {
                 balances_mxn: 0,
                 taxes_mxn: 0,
             },
-            // Contadores
             counters: {
                 total_schedules: 0,
                 pending: 0,
@@ -47,18 +42,11 @@ class PaymentReportDashboard extends Component {
                 overdue: 0,
                 manual: 0,
             },
-            // Detalle por sección
-            credit_lines: [],
-            freight_sea_lines: [],
-            freight_land_lines: [],
             advance_lines: [],
             balance_lines: [],
             tax_lines: [],
-            // Proyección meses futuros
             future_months: [],
-            // Vista activa
-            activeTab: "summary",
-            // Exchange rate
+            activeTab: "advances",
             exchange_rate: 17.33,
         });
 
@@ -75,8 +63,31 @@ class PaymentReportDashboard extends Component {
         return new Date().getFullYear();
     }
 
+    _fixScroll() {
+        // Walk up the DOM from our root element and force overflow:auto
+        // on all Odoo containers that block scrolling
+        var el = this.rootRef.el;
+        if (!el) { return; }
+        var parent = el.parentElement;
+        var maxLevels = 10;
+        var i = 0;
+        while (parent && i < maxLevels) {
+            var cls = parent.className || "";
+            if (cls.indexOf("o_action_manager") !== -1 ||
+                cls.indexOf("o_action") !== -1 ||
+                cls.indexOf("o_content") !== -1 ||
+                cls.indexOf("o_client_action") !== -1) {
+                parent.style.overflow = "auto";
+                parent.style.maxHeight = "none";
+                parent.style.height = "auto";
+            }
+            parent = parent.parentElement;
+            i++;
+        }
+    }
+
     get monthName() {
-        const months = [
+        var months = [
             "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
         ];
@@ -84,15 +95,15 @@ class PaymentReportDashboard extends Component {
     }
 
     get formattedDate() {
-        return `${this.monthName} ${this.state.selectedYear}`;
+        return this.monthName + " " + this.state.selectedYear;
     }
 
-    // ── Carga de datos ──────────────────────────────────────────────────
+    // ── Data loading ────────────────────────────────────────────────────
 
     async _loadData() {
         this.state.loading = true;
         try {
-            const data = await this.orm.call(
+            var data = await this.orm.call(
                 "purchase.payment.schedule",
                 "get_payment_report_data",
                 [],
@@ -103,8 +114,7 @@ class PaymentReportDashboard extends Component {
             );
             this._applyData(data);
         } catch (e) {
-            console.error("Error loading payment report data:", e);
-            // Fallback: cargar desde schedules directamente
+            console.error("[SOMGROUP] Error loading report data via RPC, falling back:", e);
             await this._loadFromSchedules();
         }
         this.state.loading = false;
@@ -112,15 +122,14 @@ class PaymentReportDashboard extends Component {
 
     async _loadFromSchedules() {
         try {
-            const month = this.state.selectedMonth;
-            const year = this.state.selectedYear;
-            const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-            const endMonth = month === 12 ? 1 : month + 1;
-            const endYear = month === 12 ? year + 1 : year;
-            const endDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
+            var month = this.state.selectedMonth;
+            var year = this.state.selectedYear;
+            var startDate = year + "-" + String(month).padStart(2, "0") + "-01";
+            var endMonth = month === 12 ? 1 : month + 1;
+            var endYear = month === 12 ? year + 1 : year;
+            var endDate = endYear + "-" + String(endMonth).padStart(2, "0") + "-01";
 
-            // Schedules del mes actual
-            const currentSchedules = await this.orm.searchRead(
+            var currentSchedules = await this.orm.searchRead(
                 "purchase.payment.schedule",
                 [
                     ["due_date", ">=", startDate],
@@ -135,8 +144,7 @@ class PaymentReportDashboard extends Component {
                 { order: "due_date asc, id asc" }
             );
 
-            // Schedules futuros
-            const futureSchedules = await this.orm.searchRead(
+            var futureSchedules = await this.orm.searchRead(
                 "purchase.payment.schedule",
                 [
                     ["due_date", ">=", endDate],
@@ -150,16 +158,14 @@ class PaymentReportDashboard extends Component {
                 { order: "due_date asc", limit: 200 }
             );
 
-            // Todos los schedules para contadores
-            const allPending = await this.orm.searchRead(
+            var allPending = await this.orm.searchRead(
                 "purchase.payment.schedule",
                 [["state", "in", ["pending", "partial", "overdue"]]],
                 ["id", "state", "is_manual"],
                 { limit: 500 }
             );
 
-            // Containers (impuestos)
-            const containers = await this.orm.searchRead(
+            var containers = await this.orm.searchRead(
                 "purchase.order.container",
                 [],
                 ["name", "order_id", "container_type", "tax_amount",
@@ -167,60 +173,58 @@ class PaymentReportDashboard extends Component {
                 { order: "tax_paid_date desc, id desc", limit: 100 }
             );
 
-            // Procesar datos
             this._processSchedules(currentSchedules, futureSchedules, allPending, containers);
         } catch (e) {
-            console.error("Error loading schedules:", e);
+            console.error("[SOMGROUP] Error in fallback loading:", e);
         }
     }
 
     _processSchedules(currentSchedules, futureSchedules, allPending, containers) {
-        const s = this.state;
+        var s = this.state;
+        var rate = s.exchange_rate;
 
-        // Contadores globales
         s.counters.total_schedules = allPending.length;
-        s.counters.pending = allPending.filter((r) => r.state === "pending").length;
-        s.counters.partial = allPending.filter((r) => r.state === "partial").length;
-        s.counters.overdue = allPending.filter((r) => r.state === "overdue").length;
-        s.counters.paid = currentSchedules.filter((r) => r.state === "paid").length;
-        s.counters.manual = allPending.filter((r) => r.is_manual).length;
+        s.counters.pending = allPending.filter(function (r) { return r.state === "pending"; }).length;
+        s.counters.partial = allPending.filter(function (r) { return r.state === "partial"; }).length;
+        s.counters.overdue = allPending.filter(function (r) { return r.state === "overdue"; }).length;
+        s.counters.paid = currentSchedules.filter(function (r) { return r.state === "paid"; }).length;
+        s.counters.manual = allPending.filter(function (r) { return r.is_manual; }).length;
 
-        // Clasificar líneas del mes actual
-        s.advance_lines = currentSchedules.filter(
-            (r) => r.payment_type === "advance" || r.payment_type === "second_advance"
-        );
-        s.balance_lines = currentSchedules.filter(
-            (r) => r.payment_type === "balance"
-        );
+        s.advance_lines = currentSchedules.filter(function (r) {
+            return r.payment_type === "advance" || r.payment_type === "second_advance";
+        });
+        s.balance_lines = currentSchedules.filter(function (r) {
+            return r.payment_type === "balance";
+        });
 
-        // Para crédito vs fletes, usamos la nota o el nombre de la OC
-        // En este punto no diferenciamos fletes — se muestran todos en balance
-        s.credit_lines = s.balance_lines;
-        s.freight_sea_lines = [];
-        s.freight_land_lines = [];
+        s.tax_lines = containers.map(function (c) {
+            return {
+                id: c.id,
+                container: c.name,
+                order: c.order_id ? c.order_id[1] : "",
+                type: c.container_type,
+                tax_amount: c.tax_amount || 0,
+                state: c.tax_state,
+                paid_date: c.tax_paid_date,
+                pedimento: c.pedimento,
+                notes: c.notes,
+            };
+        });
 
-        // Impuestos
-        s.tax_lines = containers.map((c) => ({
-            id: c.id,
-            container: c.name,
-            order: c.order_id ? c.order_id[1] : "",
-            type: c.container_type,
-            tax_amount: c.tax_amount || 0,
-            state: c.tax_state,
-            paid_date: c.tax_paid_date,
-            pedimento: c.pedimento,
-            notes: c.notes,
-        }));
-
-        // Resumen ejecutivo
-        const rate = s.exchange_rate;
-        let totalUSD = 0;
-        for (const line of currentSchedules) {
-            totalUSD += line.amount || 0;
+        var advUSD = 0;
+        var i;
+        for (i = 0; i < s.advance_lines.length; i++) {
+            advUSD += s.advance_lines[i].amount || 0;
         }
-        const advUSD = s.advance_lines.reduce((a, l) => a + (l.amount || 0), 0);
-        const balUSD = s.balance_lines.reduce((a, l) => a + (l.amount || 0), 0);
-        const taxMXN = s.tax_lines.reduce((a, l) => a + (l.tax_amount || 0), 0);
+        var balUSD = 0;
+        for (i = 0; i < s.balance_lines.length; i++) {
+            balUSD += s.balance_lines[i].amount || 0;
+        }
+        var taxMXN = 0;
+        for (i = 0; i < s.tax_lines.length; i++) {
+            taxMXN += s.tax_lines[i].tax_amount || 0;
+        }
+        var totalUSD = advUSD + balUSD;
 
         s.summary.total_usd = totalUSD;
         s.summary.total_mxn = totalUSD * rate + taxMXN;
@@ -230,46 +234,46 @@ class PaymentReportDashboard extends Component {
         s.summary.balances_mxn = balUSD * rate;
         s.summary.taxes_mxn = taxMXN;
 
-        // Proyección meses futuros
-        const monthGroups = {};
-        for (const sched of futureSchedules) {
-            if (!sched.due_date) continue;
-            const d = new Date(sched.due_date);
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        var monthGroups = {};
+        for (i = 0; i < futureSchedules.length; i++) {
+            var sched = futureSchedules[i];
+            if (!sched.due_date) { continue; }
+            var d = new Date(sched.due_date);
+            var key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
             if (!monthGroups[key]) {
                 monthGroups[key] = { month: key, lines: [], total_usd: 0 };
             }
             monthGroups[key].lines.push(sched);
             monthGroups[key].total_usd += sched.amount || 0;
         }
-        s.future_months = Object.values(monthGroups).sort((a, b) =>
-            a.month.localeCompare(b.month)
-        );
+        s.future_months = Object.values(monthGroups).sort(function (a, b) {
+            return a.month.localeCompare(b.month);
+        });
     }
 
     _applyData(data) {
-        if (!data) return;
+        if (!data) { return; }
         Object.assign(this.state.summary, data.summary || {});
         Object.assign(this.state.counters, data.counters || {});
-        this.state.credit_lines = data.credit_lines || [];
-        this.state.freight_sea_lines = data.freight_sea_lines || [];
-        this.state.freight_land_lines = data.freight_land_lines || [];
         this.state.advance_lines = data.advance_lines || [];
         this.state.balance_lines = data.balance_lines || [];
         this.state.tax_lines = data.tax_lines || [];
         this.state.future_months = data.future_months || [];
+        if (data.exchange_rate) {
+            this.state.exchange_rate = data.exchange_rate;
+        }
     }
 
-    // ── Formateo ────────────────────────────────────────────────────────
+    // ── Formatting ──────────────────────────────────────────────────────
 
     formatCurrency(value, currency) {
-        if (!value && value !== 0) return "—";
-        const sym = currency === "MXN" ? "$" : (currency === "EUR" ? "€" : "$");
-        const suffix = currency ? ` ${currency}` : "";
-        return `${sym}${Number(value).toLocaleString("en-US", {
+        if (!value && value !== 0) { return "\u2014"; }
+        var sym = currency === "MXN" ? "$" : (currency === "EUR" ? "\u20ac" : "$");
+        var suffix = currency ? " " + currency : "";
+        return sym + Number(value).toLocaleString("en-US", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
-        })}${suffix}`;
+        }) + suffix;
     }
 
     formatUSD(value) {
@@ -281,8 +285,8 @@ class PaymentReportDashboard extends Component {
     }
 
     formatDate(dateStr) {
-        if (!dateStr) return "—";
-        const d = new Date(dateStr + "T12:00:00");
+        if (!dateStr) { return "\u2014"; }
+        var d = new Date(dateStr + "T12:00:00");
         return d.toLocaleDateString("es-MX", {
             day: "2-digit",
             month: "short",
@@ -291,7 +295,7 @@ class PaymentReportDashboard extends Component {
     }
 
     getStateLabel(state) {
-        const labels = {
+        var labels = {
             pending: "Pendiente",
             partial: "Parcial",
             paid: "Pagado",
@@ -301,17 +305,17 @@ class PaymentReportDashboard extends Component {
     }
 
     getStateClass(state) {
-        const cls = {
+        var cls = {
             pending: "sg-badge--pending",
             partial: "sg-badge--partial",
             paid: "sg-badge--paid",
             overdue: "sg-badge--overdue",
         };
-        return `sg-badge ${cls[state] || ""}`;
+        return "sg-badge " + (cls[state] || "");
     }
 
     getTypeLabel(type) {
-        const labels = {
+        var labels = {
             advance: "Anticipo",
             second_advance: "2do Tramo",
             balance: "Balance",
@@ -324,23 +328,27 @@ class PaymentReportDashboard extends Component {
     }
 
     getMonthLabel(monthKey) {
-        const [y, m] = monthKey.split("-");
-        const months = [
+        var parts = monthKey.split("-");
+        var months = [
             "", "Ene", "Feb", "Mar", "Abr", "May", "Jun",
             "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
         ];
-        return `${months[parseInt(m)]} ${y}`;
+        return months[parseInt(parts[1])] + " " + parts[0];
     }
 
-    // ── Navegación ──────────────────────────────────────────────────────
+    // ── Navigation (named methods for t-on-click) ───────────────────────
 
-    setTab(tab) {
-        this.state.activeTab = tab;
+    onPrevMonth() {
+        this.changeMonth(-1);
+    }
+
+    onNextMonth() {
+        this.changeMonth(1);
     }
 
     async changeMonth(delta) {
-        let m = this.state.selectedMonth + delta;
-        let y = this.state.selectedYear;
+        var m = this.state.selectedMonth + delta;
+        var y = this.state.selectedYear;
         if (m > 12) { m = 1; y++; }
         if (m < 1) { m = 12; y--; }
         this.state.selectedMonth = m;
@@ -348,71 +356,90 @@ class PaymentReportDashboard extends Component {
         await this._loadData();
     }
 
-    async refresh() {
+    async onRefresh() {
         await this._loadData();
     }
 
-    // ── Acciones ────────────────────────────────────────────────────────
-
-    openSchedule(scheduleId) {
-        this.action.doAction({
-            type: "ir.actions.act_window",
-            res_model: "purchase.payment.schedule",
-            res_id: scheduleId,
-            views: [[false, "form"]],
-            target: "current",
-        });
+    onExport() {
+        window.print();
     }
 
-    openOrder(orderId) {
-        this.action.doAction({
-            type: "ir.actions.act_window",
-            res_model: "purchase.order",
-            res_id: orderId,
-            views: [[false, "form"]],
-            target: "current",
-        });
+    setTabAdvances() {
+        this.state.activeTab = "advances";
     }
 
-    openAllSchedules(domain) {
+    setTabBalances() {
+        this.state.activeTab = "balances";
+    }
+
+    setTabTaxes() {
+        this.state.activeTab = "taxes";
+    }
+
+    setTabFuture() {
+        this.state.activeTab = "future";
+    }
+
+    // ── Actions ──────────────────────────────────────────────────────────
+
+    onClickSchedule(ev) {
+        var scheduleId = parseInt(ev.currentTarget.dataset.scheduleId);
+        if (scheduleId) {
+            this.action.doAction({
+                type: "ir.actions.act_window",
+                res_model: "purchase.payment.schedule",
+                res_id: scheduleId,
+                views: [[false, "form"]],
+                target: "current",
+            });
+        }
+    }
+
+    onClickPending() {
         this.action.doAction({
             type: "ir.actions.act_window",
             res_model: "purchase.payment.schedule",
             views: [[false, "list"], [false, "form"]],
-            domain: domain || [],
+            domain: [["state", "in", ["pending", "partial"]]],
             target: "current",
-            name: _t("Pagos Programados"),
+            name: "Pagos Pendientes",
         });
     }
 
-    openPendingSchedules() {
-        this.openAllSchedules([["state", "in", ["pending", "partial"]]]);
+    onClickOverdue() {
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "purchase.payment.schedule",
+            views: [[false, "list"], [false, "form"]],
+            domain: [["state", "=", "overdue"]],
+            target: "current",
+            name: "Pagos Vencidos",
+        });
     }
 
-    openOverdueSchedules() {
-        this.openAllSchedules([["state", "=", "overdue"]]);
-    }
-
-    openPaidSchedules() {
-        const month = this.state.selectedMonth;
-        const year = this.state.selectedYear;
-        const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-        const endMonth = month === 12 ? 1 : month + 1;
-        const endYear = month === 12 ? year + 1 : year;
-        const endDate = `${endYear}-${String(endMonth).padStart(2, "0")}-01`;
-        this.openAllSchedules([
-            ["state", "=", "paid"],
-            ["due_date", ">=", startDate],
-            ["due_date", "<", endDate],
-        ]);
-    }
-
-    async exportReport() {
-        // Trigger print/export
-        window.print();
+    onClickPaid() {
+        var month = this.state.selectedMonth;
+        var year = this.state.selectedYear;
+        var startDate = year + "-" + String(month).padStart(2, "0") + "-01";
+        var endMonth = month === 12 ? 1 : month + 1;
+        var endYear = month === 12 ? year + 1 : year;
+        var endDate = endYear + "-" + String(endMonth).padStart(2, "0") + "-01";
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "purchase.payment.schedule",
+            views: [[false, "list"], [false, "form"]],
+            domain: [
+                ["state", "=", "paid"],
+                ["due_date", ">=", startDate],
+                ["due_date", "<", endDate],
+            ],
+            target: "current",
+            name: "Pagos del Mes",
+        });
     }
 }
 
 PaymentReportDashboard.template = "somgroup_import.PaymentReportDashboard";
+PaymentReportDashboard.props = { "*": true };
 
 registry.category("actions").add("somgroup_payment_report_dashboard", PaymentReportDashboard);
