@@ -120,7 +120,7 @@
                             </tr>
                             <tr>
                                 <td><i class="fa fa-university me-2 sg-icon--tax"/>Impuestos de Importación</td>
-                                <td class="text-end">\u2014</td>
+                                <td class="text-end">—</td>
                                 <td class="text-end" t-esc="formatMXN(state.summary.taxes_mxn)"/>
                             </tr>
                         </tbody>
@@ -190,7 +190,7 @@
                                 t-on-click="onClickSchedule"
                                 t-att-data-schedule-id="line.id"
                                 style="cursor:pointer">
-                                <td class="sg-table__order" t-esc="line.order_id ? line.order_id[1] : '\u2014'"/>
+                                <td class="sg-table__order" t-esc="line.order_id ? line.order_id[1] : '—'"/>
                                 <td><span class="sg-type-tag" t-esc="getTypeLabel(line.payment_type)"/></td>
                                 <td class="text-end"><t t-if="line.percent" t-esc="line.percent + '%'"/></td>
                                 <td class="text-end sg-mono" t-esc="formatUSD(line.amount)"/>
@@ -241,7 +241,7 @@
                                 t-on-click="onClickSchedule"
                                 t-att-data-schedule-id="line.id"
                                 style="cursor:pointer">
-                                <td class="sg-table__order" t-esc="line.order_id ? line.order_id[1] : '\u2014'"/>
+                                <td class="sg-table__order" t-esc="line.order_id ? line.order_id[1] : '—'"/>
                                 <td><span class="sg-type-tag sg-type-tag--balance" t-esc="getTypeLabel(line.payment_type)"/></td>
                                 <td class="text-end"><t t-if="line.percent" t-esc="line.percent + '%'"/></td>
                                 <td class="text-end sg-mono" t-esc="formatUSD(line.amount)"/>
@@ -296,7 +296,7 @@
                                 <td><span t-att-class="getTaxStateClass(tax.state)"
                                           t-esc="tax.state === 'paid' ? 'Pagado' : 'Pendiente'"/></td>
                                 <td t-esc="formatDate(tax.paid_date)"/>
-                                <td class="sg-mono" t-esc="tax.pedimento or '\u2014'"/>
+                                <td class="sg-mono" t-esc="tax.pedimento or '—'"/>
                                 <td class="sg-table__note" t-esc="tax.notes or ''"/>
                             </tr>
                         </t>
@@ -349,7 +349,7 @@
                                         t-att-data-schedule-id="line.id"
                                         style="cursor:pointer"
                                         t-attf-class="sg-table__row sg-table__row--#{line.state}">
-                                        <td t-esc="line.order_id ? line.order_id[1] : '\u2014'"/>
+                                        <td t-esc="line.order_id ? line.order_id[1] : '—'"/>
                                         <td><span class="sg-type-tag" t-esc="getTypeLabel(line.payment_type)"/></td>
                                         <td class="text-end sg-mono" t-esc="formatUSD(line.amount)"/>
                                         <td t-esc="formatDate(line.due_date)"/>
