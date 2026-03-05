@@ -1,0 +1,648 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// SOMGROUP — Payment Report Dashboard
+// Paleta neutra clara: grises, blancos, acentos suaves
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Variables ───────────────────────────────────────────────────────────────
+
+$sg-white:          #ffffff;
+$sg-bg:             #f7f8fa;
+$sg-bg-alt:         #f0f2f5;
+$sg-border:         #e2e5ea;
+$sg-border-light:   #eceef1;
+$sg-text:           #2d3340;
+$sg-text-secondary: #6b7280;
+$sg-text-muted:     #9ca3af;
+
+$sg-green:          #3d8b5e;
+$sg-green-bg:       #eef6f1;
+$sg-green-border:   #c7e0d0;
+
+$sg-amber:          #b07a1a;
+$sg-amber-bg:       #fef9ee;
+$sg-amber-border:   #f0deb0;
+
+$sg-red:            #c4453a;
+$sg-red-bg:         #fdf1f0;
+$sg-red-border:     #f0c5c1;
+
+$sg-blue:           #3b72b0;
+$sg-blue-bg:        #edf3fb;
+$sg-blue-border:    #bdd2ee;
+
+$sg-purple:         #7c5caa;
+$sg-purple-bg:      #f4f0fa;
+
+$sg-radius:         6px;
+$sg-radius-lg:      10px;
+$sg-shadow-sm:      0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+$sg-shadow:         0 2px 8px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
+$sg-transition:     150ms ease;
+
+// ── Base layout ─────────────────────────────────────────────────────────────
+
+.sg-report {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px 28px 40px;
+    background: $sg-bg;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    color: $sg-text;
+    font-size: 13.5px;
+    line-height: 1.5;
+
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+}
+
+// ── Header ──────────────────────────────────────────────────────────────────
+
+.sg-report__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid $sg-border;
+}
+
+.sg-report__header-left {
+    flex: 1;
+}
+
+.sg-report__title {
+    font-size: 22px;
+    font-weight: 700;
+    color: $sg-text;
+    margin: 0 0 4px;
+    letter-spacing: -0.3px;
+}
+
+.sg-report__subtitle {
+    font-size: 13px;
+    color: $sg-text-secondary;
+    margin: 0;
+}
+
+.sg-report__header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.sg-report__month-nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sg-report__month-label {
+    font-size: 16px;
+    font-weight: 600;
+    color: $sg-text;
+    min-width: 140px;
+    text-align: center;
+}
+
+.sg-report__actions {
+    display: flex;
+    gap: 8px;
+}
+
+// ── Buttons ─────────────────────────────────────────────────────────────────
+
+.sg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid $sg-border;
+    background: $sg-white;
+    color: $sg-text-secondary;
+    border-radius: $sg-radius;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all $sg-transition;
+    line-height: 1.4;
+
+    &:hover {
+        background: $sg-bg-alt;
+        border-color: darken($sg-border, 5%);
+        color: $sg-text;
+    }
+
+    &:active {
+        transform: scale(0.98);
+    }
+}
+
+.sg-btn--icon {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+.sg-btn--outline {
+    font-size: 12.5px;
+}
+
+// ── KPI Cards ───────────────────────────────────────────────────────────────
+
+.sg-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.sg-kpi-card {
+    background: $sg-white;
+    border: 1px solid $sg-border-light;
+    border-radius: $sg-radius-lg;
+    padding: 18px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    box-shadow: $sg-shadow-sm;
+    transition: all $sg-transition;
+
+    &:hover {
+        box-shadow: $sg-shadow;
+        border-color: $sg-border;
+    }
+}
+
+.sg-kpi-card__icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.sg-kpi-card--total .sg-kpi-card__icon {
+    background: $sg-bg-alt;
+    color: $sg-text-secondary;
+}
+
+.sg-kpi-card--pending .sg-kpi-card__icon {
+    background: $sg-amber-bg;
+    color: $sg-amber;
+}
+
+.sg-kpi-card--overdue .sg-kpi-card__icon {
+    background: $sg-red-bg;
+    color: $sg-red;
+}
+
+.sg-kpi-card--paid .sg-kpi-card__icon {
+    background: $sg-green-bg;
+    color: $sg-green;
+}
+
+.sg-kpi-card--manual .sg-kpi-card__icon {
+    background: $sg-purple-bg;
+    color: $sg-purple;
+}
+
+.sg-kpi-card__body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.sg-kpi-card__value {
+    font-size: 20px;
+    font-weight: 700;
+    color: $sg-text;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sg-kpi-card__label {
+    font-size: 12px;
+    color: $sg-text-muted;
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 500;
+}
+
+.sg-kpi-card__secondary {
+    font-size: 12px;
+    color: $sg-text-secondary;
+    margin-top: 4px;
+}
+
+// ── Sections ────────────────────────────────────────────────────────────────
+
+.sg-section {
+    margin-bottom: 24px;
+}
+
+.sg-section__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: $sg-text;
+    margin: 0 0 16px;
+    display: flex;
+    align-items: center;
+
+    .fa {
+        color: $sg-text-muted;
+    }
+}
+
+.sg-section__subtitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: $sg-text;
+    margin: 0 0 14px;
+}
+
+.sg-section--tab {
+    background: $sg-white;
+    border: 1px solid $sg-border-light;
+    border-radius: $sg-radius-lg;
+    padding: 20px 24px;
+    box-shadow: $sg-shadow-sm;
+}
+
+// ── Tables ──────────────────────────────────────────────────────────────────
+
+.sg-summary-table-wrap {
+    background: $sg-white;
+    border: 1px solid $sg-border-light;
+    border-radius: $sg-radius-lg;
+    overflow: hidden;
+    box-shadow: $sg-shadow-sm;
+}
+
+.sg-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+
+    thead {
+        th {
+            background: $sg-bg;
+            color: $sg-text-secondary;
+            font-weight: 600;
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 10px 14px;
+            border-bottom: 1px solid $sg-border;
+            white-space: nowrap;
+        }
+    }
+
+    tbody {
+        td {
+            padding: 10px 14px;
+            border-bottom: 1px solid $sg-border-light;
+            vertical-align: middle;
+            color: $sg-text;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba($sg-bg, 0.5);
+        }
+    }
+
+    tfoot {
+        td {
+            padding: 12px 14px;
+            border-top: 2px solid $sg-border;
+            background: $sg-bg;
+        }
+    }
+}
+
+.sg-table--summary {
+    tbody td:first-child {
+        font-weight: 500;
+    }
+
+    .sg-table__total-row td {
+        font-size: 14px;
+    }
+}
+
+.sg-table--compact {
+    font-size: 12.5px;
+
+    thead th {
+        padding: 8px 12px;
+        font-size: 11px;
+    }
+
+    tbody td {
+        padding: 8px 12px;
+    }
+}
+
+.sg-table__row--paid {
+    td { opacity: 0.65; }
+}
+
+.sg-table__row--overdue {
+    td { color: $sg-red; }
+    td:first-child {
+        border-left: 3px solid $sg-red;
+        padding-left: 11px;
+    }
+}
+
+.sg-table__order {
+    font-weight: 600;
+    color: $sg-blue;
+}
+
+.sg-table__note {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: $sg-text-muted;
+    font-size: 12px;
+}
+
+.sg-mono {
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    font-size: 12.5px;
+    letter-spacing: -0.2px;
+}
+
+// ── Icons contextuales ──────────────────────────────────────────────────────
+
+.sg-icon--credit  { color: $sg-blue; }
+.sg-icon--sea     { color: $sg-blue; }
+.sg-icon--land    { color: $sg-text-secondary; }
+.sg-icon--advance { color: $sg-amber; }
+.sg-icon--balance { color: $sg-purple; }
+.sg-icon--tax     { color: $sg-text-secondary; }
+.sg-icon--manual  { color: $sg-purple; font-size: 13px; }
+
+// ── Badges ──────────────────────────────────────────────────────────────────
+
+.sg-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+}
+
+.sg-badge--pending {
+    background: $sg-amber-bg;
+    color: $sg-amber;
+    border: 1px solid $sg-amber-border;
+}
+
+.sg-badge--partial {
+    background: $sg-blue-bg;
+    color: $sg-blue;
+    border: 1px solid $sg-blue-border;
+}
+
+.sg-badge--paid {
+    background: $sg-green-bg;
+    color: $sg-green;
+    border: 1px solid $sg-green-border;
+}
+
+.sg-badge--overdue {
+    background: $sg-red-bg;
+    color: $sg-red;
+    border: 1px solid $sg-red-border;
+}
+
+// ── Days counter ────────────────────────────────────────────────────────────
+
+.sg-days {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: "SF Mono", monospace;
+}
+
+.sg-days--red    { background: $sg-red-bg;   color: $sg-red; }
+.sg-days--orange { background: $sg-amber-bg; color: $sg-amber; }
+.sg-days--gray   { background: $sg-bg-alt;   color: $sg-text-secondary; }
+.sg-days--green  { background: $sg-green-bg; color: $sg-green; }
+.sg-days--blue   { background: $sg-blue-bg;  color: $sg-blue; }
+
+// ── Type tags ───────────────────────────────────────────────────────────────
+
+.sg-type-tag {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: $sg-bg-alt;
+    color: $sg-text-secondary;
+}
+
+.sg-type-tag--balance {
+    background: $sg-purple-bg;
+    color: $sg-purple;
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+
+.sg-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid $sg-border;
+    padding-bottom: 0;
+}
+
+.sg-tabs__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: $sg-text-secondary;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: all $sg-transition;
+    margin-bottom: -1px;
+
+    &:hover {
+        color: $sg-text;
+        background: rgba($sg-bg-alt, 0.5);
+    }
+}
+
+.sg-tabs__btn--active {
+    color: $sg-text;
+    border-bottom-color: $sg-text;
+    font-weight: 600;
+}
+
+.sg-tabs__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: $sg-bg-alt;
+    color: $sg-text-muted;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.sg-tabs__btn--active .sg-tabs__count {
+    background: $sg-text;
+    color: $sg-white;
+}
+
+// ── Empty state ─────────────────────────────────────────────────────────────
+
+.sg-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: $sg-text-muted;
+    font-size: 14px;
+
+    .fa {
+        display: block;
+        font-size: 28px;
+        margin-bottom: 10px;
+        opacity: 0.4;
+    }
+}
+
+// ── Future months ───────────────────────────────────────────────────────────
+
+.sg-future-month {
+    margin-bottom: 20px;
+    background: $sg-white;
+    border: 1px solid $sg-border-light;
+    border-radius: $sg-radius-lg;
+    overflow: hidden;
+    box-shadow: $sg-shadow-sm;
+}
+
+.sg-future-month__header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    background: $sg-bg;
+    border-bottom: 1px solid $sg-border-light;
+}
+
+.sg-future-month__title {
+    font-size: 14px;
+    font-weight: 700;
+    color: $sg-text;
+    margin: 0;
+}
+
+.sg-future-month__total {
+    font-family: "SF Mono", monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: $sg-text;
+}
+
+.sg-future-month__count {
+    font-size: 12px;
+    color: $sg-text-muted;
+    margin-left: auto;
+}
+
+// ── Footer ──────────────────────────────────────────────────────────────────
+
+.sg-report__footer {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 20px;
+    margin-top: 32px;
+    border-top: 1px solid $sg-border;
+    font-size: 11.5px;
+    color: $sg-text-muted;
+}
+
+// ── Loading ─────────────────────────────────────────────────────────────────
+
+.sg-report__loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 20px;
+    color: $sg-text-muted;
+    gap: 14px;
+    font-size: 14px;
+}
+
+.sg-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid $sg-border;
+    border-top-color: $sg-text-secondary;
+    border-radius: 50%;
+    animation: sg-spin 0.7s linear infinite;
+}
+
+@keyframes sg-spin {
+    to { transform: rotate(360deg); }
+}
+
+// ── Print ───────────────────────────────────────────────────────────────────
+
+@media print {
+    .sg-report {
+        padding: 0;
+        background: white;
+    }
+
+    .sg-report__actions,
+    .sg-report__month-nav .sg-btn,
+    .sg-tabs__btn:not(.sg-tabs__btn--active) {
+        display: none !important;
+    }
+
+    .sg-kpi-card,
+    .sg-section--tab,
+    .sg-future-month {
+        break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #ddd;
+    }
+
+    .sg-table__row--paid td {
+        opacity: 1;
+    }
+}

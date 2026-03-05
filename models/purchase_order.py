@@ -294,6 +294,170 @@ class PurchasePaymentSchedule(models.Model):
         return 'pending'
 
     # ──────────────────────────────────────────────────────────────────────────
+    # Reporte de Pagos — Dashboard OWL
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @api.model
+    def get_payment_report_data(self, month=None, year=None):
+        """
+        Endpoint para el dashboard de reporte de pagos.
+        Devuelve resumen ejecutivo + detalle por sección + proyección multi-mes.
+        """
+        from datetime import date as date_cls
+
+        today = date_cls.today()
+        month = month or today.month
+        year = year or today.year
+
+        # Rango del mes seleccionado
+        start_date = date_cls(year, month, 1)
+        if month == 12:
+            end_date = date_cls(year + 1, 1, 1)
+        else:
+            end_date = date_cls(year, month + 1, 1)
+
+        # ── Schedules del mes ────────────────────────────────────────────
+        current_schedules = self.search([
+            ('due_date', '>=', start_date),
+            ('due_date', '<', end_date),
+        ], order='due_date asc, id asc')
+
+        # ── Schedules futuros ────────────────────────────────────────────
+        future_schedules = self.search([
+            ('due_date', '>=', end_date),
+            ('state', 'in', ['pending', 'partial', 'overdue']),
+        ], order='due_date asc', limit=200)
+
+        # ── Todos pendientes (para contadores) ──────────────────────────
+        all_pending = self.search([
+            ('state', 'in', ['pending', 'partial', 'overdue']),
+        ])
+
+        # ── Contenedores (impuestos) ────────────────────────────────────
+        Container = self.env['purchase.order.container']
+        containers = Container.search([], order='tax_paid_date desc, id desc', limit=100)
+
+        # ── Tipo de cambio ──────────────────────────────────────────────
+        usd_currency = self.env.ref('base.USD', raise_if_not_found=False)
+        mxn_currency = self.env.ref('base.MXN', raise_if_not_found=False)
+        rate = 17.33  # fallback
+        if usd_currency and mxn_currency:
+            try:
+                rate = usd_currency._convert(
+                    1.0, mxn_currency,
+                    self.env.company, today,
+                )
+            except Exception:
+                pass
+
+        # ── Helper: schedule → dict ──────────────────────────────────────
+        def _schedule_to_dict(s):
+            return {
+                'id': s.id,
+                'order_id': [s.order_id.id, s.order_id.name] if s.order_id else False,
+                'partner': s.order_id.partner_id.name if s.order_id and s.order_id.partner_id else '',
+                'payment_type': s.payment_type,
+                'percent': s.percent,
+                'amount': s.amount,
+                'currency_name': s.currency_id.name if s.currency_id else 'USD',
+                'due_date': str(s.due_date) if s.due_date else False,
+                'state': s.state,
+                'paid_amount': s.paid_amount,
+                'remaining_amount': s.remaining_amount,
+                'is_manual': s.is_manual,
+                'note': s.note or '',
+                'days_until_due': s.days_until_due,
+                'alert_color': s.alert_color,
+                'paid_date': str(s.paid_date) if s.paid_date else False,
+                'payment_reference': s.payment_reference or '',
+            }
+
+        # ── Clasificar líneas del mes ────────────────────────────────────
+        advance_lines = []
+        balance_lines = []
+
+        for s in current_schedules:
+            d = _schedule_to_dict(s)
+            if s.payment_type in ('advance', 'second_advance'):
+                advance_lines.append(d)
+            else:
+                balance_lines.append(d)
+
+        # ── Impuestos ────────────────────────────────────────────────────
+        tax_lines = []
+        total_taxes = 0.0
+        for c in containers:
+            tax_lines.append({
+                'id': c.id,
+                'container': c.name,
+                'order': c.order_id.name if c.order_id else '',
+                'order_id': c.order_id.id if c.order_id else False,
+                'type': c.container_type,
+                'tax_amount': c.tax_amount or 0,
+                'state': c.tax_state,
+                'paid_date': str(c.tax_paid_date) if c.tax_paid_date else False,
+                'pedimento': c.pedimento or '',
+                'notes': c.notes or '',
+            })
+            total_taxes += c.tax_amount or 0
+
+        # ── Resumen ejecutivo ────────────────────────────────────────────
+        adv_usd = sum(l['amount'] for l in advance_lines)
+        bal_usd = sum(l['amount'] for l in balance_lines)
+        total_usd = adv_usd + bal_usd
+
+        summary = {
+            'total_usd': total_usd,
+            'total_mxn': total_usd * rate + total_taxes,
+            'credit_usd': 0,
+            'credit_mxn': 0,
+            'freight_sea_usd': 0,
+            'freight_sea_mxn': 0,
+            'freight_land_mxn': 0,
+            'advances_usd': adv_usd,
+            'advances_mxn': adv_usd * rate,
+            'balances_usd': bal_usd,
+            'balances_mxn': bal_usd * rate,
+            'taxes_mxn': total_taxes,
+        }
+
+        # ── Contadores ──────────────────────────────────────────────────
+        counters = {
+            'total_schedules': len(all_pending),
+            'pending': len(all_pending.filtered(lambda s: s.state == 'pending')),
+            'partial': len(all_pending.filtered(lambda s: s.state == 'partial')),
+            'overdue': len(all_pending.filtered(lambda s: s.state == 'overdue')),
+            'paid': len(current_schedules.filtered(lambda s: s.state == 'paid')),
+            'manual': len(all_pending.filtered(lambda s: s.is_manual)),
+        }
+
+        # ── Proyección meses futuros ────────────────────────────────────
+        month_groups = {}
+        for s in future_schedules:
+            if not s.due_date:
+                continue
+            key = s.due_date.strftime('%Y-%m')
+            if key not in month_groups:
+                month_groups[key] = {'month': key, 'lines': [], 'total_usd': 0}
+            month_groups[key]['lines'].append(_schedule_to_dict(s))
+            month_groups[key]['total_usd'] += s.amount or 0
+
+        future_months = sorted(month_groups.values(), key=lambda x: x['month'])
+
+        return {
+            'summary': summary,
+            'counters': counters,
+            'advance_lines': advance_lines,
+            'balance_lines': balance_lines,
+            'credit_lines': [],
+            'freight_sea_lines': [],
+            'freight_land_lines': [],
+            'tax_lines': tax_lines,
+            'future_months': future_months,
+            'exchange_rate': round(rate, 2),
+        }
+
+    # ──────────────────────────────────────────────────────────────────────────
     # Helpers contables
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -662,21 +826,12 @@ class PurchasePaymentSchedule(models.Model):
             return
 
         # ── ESTRATEGIA: Buscar líneas outstanding del proveedor ────────────
-        # En Odoo 19, un pago outbound genera:
-        #   - Débito en cuenta "Outstanding Payments" (del diario de banco)
-        #   - Crédito en cuenta del banco
-        # La línea de outstanding payments es la que se puede reconciliar
-        # contra la línea payable de la factura.
-        # Buscamos TODAS las líneas no reconciliadas del proveedor que tengan
-        # amount_residual > 0 (débito neto) en cuentas payable O asset_current (outstanding).
-
-        # Primero: diagnóstico - buscar TODAS las líneas no reconciliadas del proveedor
         all_unreconciled = self.env['account.move.line'].search([
             ('partner_id', '=', order.partner_id.id),
             ('reconciled', '=', False),
             ('parent_state', '=', 'posted'),
             ('move_id', '!=', invoice.id),
-            ('amount_residual', '>', 0),  # débito neto pendiente
+            ('amount_residual', '>', 0),
         ], order='date asc, id asc')
 
         _logger.info(
@@ -693,17 +848,6 @@ class PurchasePaymentSchedule(models.Model):
                 line.move_id.name, line.move_id.ref or 'N/A', line.name or 'N/A',
             )
 
-        # Buscar líneas que se puedan reconciliar con la factura:
-        # La factura tiene un CRÉDITO en cuenta payable (201.01.001)
-        # El pago tiene un DÉBITO en cuenta payable O outstanding payments
-        # Para reconciliar, ambas deben estar en la MISMA cuenta.
-        #
-        # Si el pago usó outstanding payments (no payable), Odoo necesita
-        # que primero se "aplique" el outstanding credit.
-        # Pero podemos buscar directamente las líneas en la misma cuenta payable.
-        
-        # Estrategia ampliada: buscar en cuenta payable Y en cuentas de tipo
-        # liability_payable (que incluye outstanding payments del proveedor)
         payment_debit_lines = self.env['account.move.line'].search([
             ('partner_id', '=', order.partner_id.id),
             ('account_id.account_type', '=', 'liability_payable'),
@@ -719,7 +863,6 @@ class PurchasePaymentSchedule(models.Model):
         )
 
         # Filtrar solo las que corresponden a nuestros anticipos
-        # Intentamos matchear por monto y por referencia a la OC
         matched_lines = self.env['account.move.line']
         remaining_to_match = expected_advance_amount
 
@@ -727,7 +870,6 @@ class PurchasePaymentSchedule(models.Model):
             if remaining_to_match <= 0.01:
                 break
 
-            # Verificar si esta línea pertenece a un anticipo de esta OC
             is_our_advance = False
 
             # Check 1: ref del move contiene el nombre de la OC
@@ -742,7 +884,6 @@ class PurchasePaymentSchedule(models.Model):
             if not is_our_advance:
                 for sched in advance_schedules:
                     pay = sched.advance_payment_id
-                    # Comparar por nombre del pago == nombre del move
                     if pay.name and line.move_id.name == pay.name:
                         is_our_advance = True
                         _logger.info(
@@ -796,7 +937,6 @@ class PurchasePaymentSchedule(models.Model):
                 '[SOMGROUP][RECONCILE] No matching advance debit lines found for OC %s.',
                 order.name,
             )
-            # Diagnóstico: listar todas las líneas de débito encontradas
             for line in payment_debit_lines[:10]:
                 _logger.warning(
                     '[SOMGROUP][RECONCILE][DIAG] Debit line id=%s | debit=%s | move=%s | '
@@ -812,11 +952,6 @@ class PurchasePaymentSchedule(models.Model):
         )
 
         # ── Reconciliar ──────────────────────────────────────────────────
-        # Las líneas de la factura están en cuenta payable (201.01.001)
-        # Las líneas del pago DEBEN estar en la misma cuenta para reconciliar.
-        # Si están en cuenta diferente (outstanding payments), necesitamos
-        # usar el mecanismo de Odoo para aplicar outstanding credits.
-
         inv_account = invoice_payable_lines[0].account_id
         same_account_lines = matched_lines.filtered(lambda l: l.account_id == inv_account)
         diff_account_lines = matched_lines.filtered(lambda l: l.account_id != inv_account)
@@ -858,7 +993,6 @@ class PurchasePaymentSchedule(models.Model):
             )
             for line in diff_account_lines:
                 try:
-                    # Odoo 19: js_assign_outstanding_line aplica un pago outstanding a una factura
                     if hasattr(invoice, 'js_assign_outstanding_line'):
                         invoice.js_assign_outstanding_line(line.id)
                         _logger.info(
