@@ -60,8 +60,8 @@
                                 type="object"
                                 class="btn btn-primary btn-sm"/>
                         <span class="text-muted small ms-2">
-                            Genera los hitos de pago y sus facturas (anticipo posted,
-                            balance en borrador para revisión del contador).
+                            Genera los hitos de pago. Anticipos = pago directo (sin factura).
+                            Balance = factura al 100% donde se reconcilian los anticipos.
                         </span>
                     </div>
 
@@ -85,6 +85,7 @@
                             <field name="paid_date"          optional="show" string="Fecha Pago"/>
                             <field name="paid_amount"        optional="show" string="Monto Pagado" readonly="1"/>
                             <field name="remaining_amount"   optional="show" string="Saldo" readonly="1"/>
+                            <field name="advance_payment_id" optional="show" string="Pago Anticipo" readonly="1"/>
                             <field name="schedule_invoice_id" optional="show" string="Factura" readonly="1"/>
                             <field name="payment_reference"  string="Referencia"/>
                             <field name="is_manual" widget="boolean" string="Manual"/>
@@ -95,14 +96,14 @@
                                     class="btn btn-sm btn-success"
                                     invisible="state == 'paid'"/>
                             <button name="action_view_schedule_invoice"
-                                    string="📄 Factura"
+                                    string="📄 Ver Doc."
                                     type="object"
                                     class="btn btn-sm btn-info"/>
                             <button name="action_view_payments"
                                     string="Ver Pagos"
                                     type="object"
                                     class="btn btn-sm btn-secondary"
-                                    invisible="not payment_ids"/>
+                                    invisible="not payment_ids and not advance_payment_id"/>
                             <field name="payment_ids" column_invisible="1"/>
                         </list>
                     </field>
@@ -162,7 +163,7 @@
             <form string="Pago Programado">
                 <header>
                     <button name="action_register_payment"
-                            string="💵 Registrar Pago Contable"
+                            string="💵 Registrar Pago"
                             type="object"
                             class="btn-primary"
                             invisible="state == 'paid'"/>
@@ -180,7 +181,7 @@
                                 type="object"
                                 class="oe_stat_button"
                                 icon="fa-credit-card"
-                                invisible="not payment_ids">
+                                invisible="not payment_ids and not advance_payment_id">
                             <field name="payment_ids" widget="statinfo" string="Pagos"/>
                         </button>
                         <button name="action_view_schedule_invoice"
@@ -188,7 +189,7 @@
                                 class="oe_stat_button"
                                 icon="fa-file-text-o">
                             <div class="o_stat_info">
-                                <span class="o_stat_text">Ver Factura</span>
+                                <span class="o_stat_text">Ver Documento</span>
                             </div>
                         </button>
                     </div>
@@ -221,7 +222,10 @@
                             <field name="payment_reference" string="Referencia / Folio"/>
                         </group>
                         <group string="Documentos">
-                            <field name="schedule_invoice_id" string="Factura del Hito" readonly="1"/>
+                            <field name="advance_payment_id" string="Pago Anticipo" readonly="1"
+                                   invisible="payment_type == 'balance'"/>
+                            <field name="schedule_invoice_id" string="Factura del Hito" readonly="1"
+                                   invisible="payment_type != 'balance'"/>
                         </group>
                     </group>
 
@@ -275,6 +279,7 @@
                 <field name="paid_date"           string="Fecha Pago"/>
                 <field name="paid_amount"         string="Pagado" readonly="1"/>
                 <field name="remaining_amount"    string="Saldo" readonly="1"/>
+                <field name="advance_payment_id"  optional="show" string="Pago Anticipo" readonly="1"/>
                 <field name="schedule_invoice_id" optional="show" string="Factura" readonly="1"/>
                 <field name="payment_reference"   string="Referencia"/>
                 <field name="is_manual"           string="Manual"/>
@@ -283,7 +288,7 @@
                         string="💵 Pagar"
                         type="object"
                         class="btn btn-sm btn-success"
-                        title="Registrar Pago Contable"
+                        title="Registrar Pago"
                         invisible="state == 'paid'"/>
             </list>
         </field>

@@ -20,7 +20,6 @@ class AccountPaymentRegister(models.TransientModel):
 
     def action_create_payments(self):
         res = super().action_create_payments()
-        # En este punto los pagos ya están creados, posteados Y reconciliados
         try:
             orders = self.env['purchase.order']
             active_ids = self.env.context.get('active_ids', [])

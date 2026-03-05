@@ -38,12 +38,10 @@ class AccountPayment(models.Model):
 
     def _get_reconciled_invoices(self):
         self.ensure_one()
-        # Intentar primero los campos de alto nivel (más confiables)
         if hasattr(self, 'reconciled_bill_ids') and self.reconciled_bill_ids:
             return self.reconciled_bill_ids
         if hasattr(self, 'reconciled_invoice_ids') and self.reconciled_invoice_ids:
             return self.reconciled_invoice_ids
-        # Fallback manual — solo si ya tiene line_ids (pago posteado)
         moves = self.env['account.move']
         if not self.line_ids:
             return moves
@@ -67,7 +65,6 @@ class AccountPayment(models.Model):
             if payment.purchase_schedule_id:
                 orders |= payment.purchase_schedule_id.order_id
 
-        # Solo buscar facturas reconciliadas en pagos ya posteados
         orders |= self._get_related_purchase_orders()
 
         if orders:

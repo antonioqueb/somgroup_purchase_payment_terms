@@ -10,6 +10,7 @@ class AccountMove(models.Model):
     def action_post(self):
         res = super().action_post()
         _logger.info('[SOMGROUP] account.move action_post triggered for moves: %s', self.ids)
+        self._reconcile_advances_on_post()
         self._sync_import_payment_schedules()
         return res
 
@@ -22,6 +23,25 @@ class AccountMove(models.Model):
         res = super().button_cancel()
         self._sync_import_payment_schedules()
         return res
+
+    def _reconcile_advances_on_post(self):
+        """
+        Cuando se confirma (postea) una factura de balance,
+        busca los anticipos de la misma OC y los reconcilia automáticamente.
+        """
+        Schedule = self.env['purchase.payment.schedule']
+        for move in self.filtered(lambda m: m.move_type == 'in_invoice'):
+            # ¿Esta factura es un schedule_invoice_id de algún hito de balance?
+            balance_schedules = Schedule.search([
+                ('schedule_invoice_id', '=', move.id),
+                ('payment_type', '=', 'balance'),
+            ])
+            for schedule in balance_schedules:
+                _logger.info(
+                    '[SOMGROUP] Factura %s posted → reconciliando anticipos para OC %s',
+                    move.name, schedule.order_id.name
+                )
+                schedule._reconcile_advances_to_invoice(move)
 
     def _sync_import_payment_schedules(self):
         orders = self.env['purchase.order']

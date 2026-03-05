@@ -119,11 +119,12 @@ class PurchaseOrder(models.Model):
 
     def _recalculate_payment_schedule(self):
         self.ensure_one()
-        # Borrar SOLO hitos pendientes sin pago y sin factura vinculada
+        # Borrar SOLO hitos pendientes sin pago y sin factura/pago directo vinculado
         pending_clean = self.payment_schedule_ids.filtered(
             lambda l: l.state == 'pending'
             and not l.payment_ids
             and not l.schedule_invoice_id
+            and not l.advance_payment_id
         )
         pending_clean.unlink()
 
@@ -146,13 +147,7 @@ class PurchaseOrder(models.Model):
         } for l in self.payment_term_id.compute_due_dates(self)]
 
         if vals_list:
-            new_schedules = self.env['purchase.payment.schedule'].create(vals_list)
-            for schedule in new_schedules:
-                try:
-                    schedule._ensure_invoice_exists()
-                except Exception as e:
-                    _logger.warning(
-                        '[SOMGROUP] No se pudo crear factura para hito %s: %s', schedule.id, e)
+            self.env['purchase.payment.schedule'].create(vals_list)
 
     def write(self, vals):
         res = super().write(vals)
@@ -162,9 +157,8 @@ class PurchaseOrder(models.Model):
                 lambda o: o.is_import_order and o.payment_term_id and
                 o.payment_term_id.somgroup_term_type != 'standard'
             ):
-                # Solo recalcular si NO hay hitos con factura o pago ya registrado
                 has_committed = any(
-                    s.schedule_invoice_id or s.payment_ids
+                    s.schedule_invoice_id or s.payment_ids or s.advance_payment_id
                     for s in order.payment_schedule_ids
                 )
                 if not has_committed:
@@ -217,17 +211,25 @@ class PurchasePaymentSchedule(models.Model):
     payment_ids = fields.One2many(
         'account.payment', 'purchase_schedule_id', string='Pagos Contables', readonly=True)
 
-    # ── Una factura por hito, vinculada a la OC via purchase_id ─────────────
-    # Anticipo/Segundo tramo → posted inmediatamente (product de anticipo)
-    # Balance                → borrador, el contador la revisa y confirma
+    # ── Pago directo de anticipo (sin factura) ──────────────────────────
+    advance_payment_id = fields.Many2one(
+        'account.payment',
+        string='Pago de Anticipo',
+        readonly=True,
+        ondelete='set null',
+        help='Pago directo registrado para el anticipo (sin factura). '
+             'El memo contiene la referencia de la OC para reconciliación posterior.',
+    )
+
+    # ── Factura del hito (solo para balance) ────────────────────────────
     schedule_invoice_id = fields.Many2one(
         'account.move',
         string='Factura del Hito',
         readonly=True,
         ondelete='set null',
         help='Factura vinculada a este hito. '
-             'Anticipo: posted con producto anticipo. '
-             'Balance: borrador con líneas de la OC — el contador debe confirmarla.',
+             'Solo se genera para balance/liquidación (al 100% del monto de la OC). '
+             'Los anticipos previos se reconcilian automáticamente.',
     )
 
     state = fields.Selection([
@@ -280,20 +282,12 @@ class PurchasePaymentSchedule(models.Model):
     # Helpers contables
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _get_advance_product(self):
-        product = self.env.ref('purchase.product_product_advance', raise_if_not_found=False)
-        if product:
-            return product
-        product = self.env['product.product'].search(
-            [('name', '=', 'Anticipo a Proveedor'), ('type', '=', 'service')], limit=1)
-        if product:
-            return product
-        return self.env['product.product'].create({
-            'name': 'Anticipo a Proveedor',
-            'type': 'service',
-            'purchase_ok': True,
-            'sale_ok': False,
-        })
+    def _get_advance_memo(self):
+        """Genera el memo/referencia que identifica el anticipo con la OC."""
+        self.ensure_one()
+        order = self.order_id
+        type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
+        return 'ANTICIPO {} — {} ({:.0f}%)'.format(order.name, type_label, self.percent)
 
     def _get_expense_account(self, product=None):
         """
@@ -318,7 +312,7 @@ class PurchasePaymentSchedule(models.Model):
     def _get_payments_for_invoice(self, invoice):
         """
         Odoo 19: account.move ya NO tiene .payment_id
-        Se busca via Payment.search([('move_id', '=', counterpart.move_id.id)])
+        Se busca via reconciliación de partidas.
         """
         Payment = self.env['account.payment']
         if not invoice or invoice.state != 'posted':
@@ -341,145 +335,240 @@ class PurchasePaymentSchedule(models.Model):
                     payments |= payment
         return payments
 
+    def _find_advance_payments_by_memo(self, order):
+        """
+        Busca pagos de anticipo registrados para esta OC usando el memo/ref
+        que contiene el nombre de la OC.
+        """
+        Payment = self.env['account.payment']
+        # Buscar pagos cuyo memo contenga el nombre de la OC
+        payments = Payment.search([
+            ('partner_id', '=', order.partner_id.id),
+            ('state', '=', 'posted'),
+            ('payment_type', '=', 'outbound'),
+            '|',
+            ('ref', 'ilike', order.name),
+            ('memo', 'ilike', order.name),
+        ])
+        return payments
+
     # ──────────────────────────────────────────────────────────────────────────
-    # Creación de facturas por hito
+    # NUEVO FLUJO: Anticipo = Pago directo, Balance = Factura 100%
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _ensure_invoice_exists(self):
+    def _ensure_payment_or_invoice_exists(self):
         """
-        Garantiza que exista una factura vinculada al hito.
-        - Anticipo / Segundo Tramo → factura posted (lista para pagar)
-        - Balance                  → factura borrador (para revisión del contador)
-        Si ya existe no hace nada.
+        Para anticipos: crea un pago directo (sin factura).
+        Para balance: crea factura al 100% y reconcilia anticipos.
         """
         self.ensure_one()
-        if self.schedule_invoice_id:
-            return self.schedule_invoice_id
         if self.payment_type in ('advance', 'second_advance'):
-            return self._create_advance_invoice()
-        return self._create_balance_invoice()
+            if self.advance_payment_id:
+                return self.advance_payment_id
+            return self._create_advance_payment()
+        else:
+            if self.schedule_invoice_id:
+                return self.schedule_invoice_id
+            return self._create_balance_invoice()
 
-    def _build_invoice_base_vals(self):
-        """Valores comunes para todas las facturas de hito."""
+    def _create_advance_payment(self):
+        """
+        Crea un pago directo (outbound) al proveedor SIN factura.
+        El memo contiene el nombre de la OC como clave de referencia.
+        El pago se postea inmediatamente.
+        """
+        self.ensure_one()
         order = self.order_id
+        memo = self._get_advance_memo()
+
+        # Buscar journal de banco/efectivo
+        journal = self.env['account.journal'].search([
+            ('type', 'in', ['bank', 'cash']),
+            ('company_id', '=', order.company_id.id),
+        ], limit=1)
+
+        if not journal:
+            raise UserError(_(
+                'No se encontró un diario de banco o efectivo. '
+                'Configure uno antes de registrar anticipos.'
+            ))
+
+        # Cuenta de outstanding payments (destino del pago)
+        payment_vals = {
+            'payment_type': 'outbound',
+            'partner_type': 'supplier',
+            'partner_id': order.partner_id.id,
+            'amount': self.amount,
+            'currency_id': order.currency_id.id,
+            'journal_id': journal.id,
+            'date': fields.Date.today(),
+            'ref': memo,
+            'purchase_schedule_id': self.id,
+        }
+
+        # Odoo 19: memo field — usar ref si memo no existe
+        Payment = self.env['account.payment']
+        if 'memo' in Payment._fields:
+            payment_vals['memo'] = memo
+
+        payment = Payment.create(payment_vals)
+        payment.action_post()
+
+        self.write({
+            'advance_payment_id': payment.id,
+            'paid_amount': self.amount,
+            'remaining_amount': 0.0,
+            'state': 'paid',
+            'paid_date': fields.Date.today(),
+        })
+
+        _logger.info(
+            '[SOMGROUP] Pago anticipo %s (id=%s) → hito %s OC %s | memo: %s',
+            payment.name, payment.id, self.id, order.name, memo
+        )
+        return payment
+
+    def _create_balance_invoice(self):
+        """
+        Crea factura al 100% del monto de la OC (no solo el balance).
+        Luego busca anticipos previos por memo y los reconcilia contra esta factura
+        para que el saldo residual sea solo lo que falta por pagar.
+        """
+        self.ensure_one()
+        order = self.order_id
+
+        # ── Crear factura al 100% de la OC ──────────────────────────────
         type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
-        ref = '{} — {} ({:.0f}%)'.format(order.name, type_label, self.percent)
-        return {
+        ref = '{} — {} (100%)'.format(order.name, type_label)
+
+        vals = {
             'move_type': 'in_invoice',
             'partner_id': order.partner_id.id,
             'currency_id': order.currency_id.id,
             'invoice_date': fields.Date.today(),
-            # purchase_id vincula la factura a la OC → aparece en botón Facturas de la OC
             'purchase_id': order.id,
-            'narration': 'OC: {} | Hito: {} ({:.0f}%) | {}'.format(
-                order.name, type_label, self.percent, self.note or ''),
+            'narration': 'OC: {} | Factura completa — anticipos se reconcilian automáticamente'.format(
+                order.name),
             'ref': ref,
         }
 
-    def _get_invoice_tax(self, product, order):
-        """
-        Obtiene los impuestos correctos para la línea de factura.
-        Prioridad: impuestos del producto para compras → impuestos fiscales de la posición del partner.
-        """
-        taxes = product.supplier_taxes_id
-        if order.fiscal_position_id:
-            taxes = order.fiscal_position_id.map_tax(taxes)
-        return taxes
-
-    def _get_amount_untaxed(self):
-        """
-        Calcula el monto sin IVA para este hito basándose en el porcentaje.
-        Usa amount_untaxed de la OC para no duplicar impuestos.
-        """
-        order = self.order_id
-        # Si la OC tiene amount_untaxed, usar ese como base
-        if order.amount_untaxed:
-            return round(order.amount_untaxed * self.percent / 100.0, 2)
-        # Fallback: asumir que self.amount ya es sin IVA
-        return self.amount
-
-    def _create_advance_invoice(self):
-        self.ensure_one()
-        product = self._get_advance_product()
-        account = self._get_expense_account(product)
-        order = self.order_id
-
-        if not account:
-            raise UserError(_(
-                'No se encontró cuenta contable para el anticipo. '
-                'Configure la cuenta de gastos en el producto "Anticipo a Proveedor".'
-            ))
-
-        type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
-        taxes = self._get_invoice_tax(product, order)
-        price_unit = self._get_amount_untaxed()
-
-        vals = self._build_invoice_base_vals()
-        vals['invoice_line_ids'] = [(0, 0, {
-            'name': '[{}] {} — {:.0f}%'.format(type_label.upper(), order.name, self.percent),
-            'product_id': product.id,
-            'quantity': 1.0,
-            'price_unit': price_unit,
-            'account_id': account.id,
-            'tax_ids': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
-        })]
-
-        invoice = self.env['account.move'].create(vals)
-        invoice.action_post()
-
-        self.write({'schedule_invoice_id': invoice.id})
-        _logger.info('[SOMGROUP] Factura anticipo %s (id=%s) → hito %s OC %s',
-                     invoice.name, invoice.id, self.id, order.name)
-        return invoice
-
-    def _create_balance_invoice(self):
-        self.ensure_one()
-        order = self.order_id
-        vals = self._build_invoice_base_vals()
-
         invoice_lines = []
         po_lines = order.order_line.filtered(lambda l: l.product_qty > 0)
-        factor = self.percent / 100.0
 
         if po_lines:
             for pol in po_lines:
                 account = self._get_expense_account(pol.product_id)
-                # Usar taxes de la línea de la OC directamente
                 taxes = pol.tax_ids
                 if order.fiscal_position_id:
                     taxes = order.fiscal_position_id.map_tax(taxes)
                 invoice_lines.append((0, 0, {
-                    'name': '[BALANCE {:.0f}%] {}'.format(
-                        self.percent, pol.name or pol.product_id.name),
+                    'name': pol.name or pol.product_id.name,
                     'product_id': pol.product_id.id,
-                    'quantity': pol.product_qty * factor,
-                    'price_unit': pol.price_unit,  # precio unitario sin IVA
+                    'quantity': pol.product_qty,
+                    'price_unit': pol.price_unit,
                     'account_id': account.id if account else False,
                     'purchase_line_id': pol.id,
                     'tax_ids': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
                 }))
         else:
-            product = self._get_advance_product()
-            account = self._get_expense_account(product)
-            taxes = self._get_invoice_tax(product, order)
-            price_unit = self._get_amount_untaxed()
-            type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
+            # Fallback: línea genérica
             invoice_lines.append((0, 0, {
-                'name': '[BALANCE] {} — {:.0f}%'.format(order.name, self.percent),
-                'product_id': product.id,
+                'name': 'Factura completa — {}'.format(order.name),
                 'quantity': 1.0,
-                'price_unit': price_unit,
-                'account_id': account.id if account else False,
-                'tax_ids': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
+                'price_unit': order.amount_untaxed or order.amount_total,
+                'account_id': self._get_expense_account().id,
+                'tax_ids': [(5, 0, 0)],
             }))
 
         vals['invoice_line_ids'] = invoice_lines
         invoice = self.env['account.move'].create(vals)
 
         self.write({'schedule_invoice_id': invoice.id})
-        _logger.info('[SOMGROUP] Factura balance %s (id=%s, borrador) → hito %s OC %s',
-                     invoice.name or '(borrador)', invoice.id, self.id, order.name)
+
+        _logger.info(
+            '[SOMGROUP] Factura balance %s (id=%s, borrador) → hito %s OC %s',
+            invoice.name or '(borrador)', invoice.id, self.id, order.name
+        )
+
+        # ── Reconciliar anticipos previos ────────────────────────────────
+        # La factura queda en borrador. Cuando el contador la confirme (post),
+        # se ejecutará la reconciliación automática de anticipos.
+        # Pero también intentamos reconciliar ahora si ya hay anticipos posted.
         return invoice
+
+    def _reconcile_advances_to_invoice(self, invoice):
+        """
+        Busca pagos de anticipo de la misma OC (por memo y por purchase_schedule_id)
+        y los reconcilia contra la factura para reducir el saldo residual.
+        """
+        if not invoice or invoice.state != 'posted':
+            return
+
+        order = self.order_id
+        Payment = self.env['account.payment']
+
+        # Recopilar pagos de anticipo de esta OC
+        advance_payments = Payment.browse()
+
+        # 1. Pagos vinculados directamente via purchase_schedule_id (anticipos del calendario)
+        advance_schedules = order.payment_schedule_ids.filtered(
+            lambda s: s.payment_type in ('advance', 'second_advance') and s.advance_payment_id
+        )
+        for sched in advance_schedules:
+            if sched.advance_payment_id.state == 'posted':
+                advance_payments |= sched.advance_payment_id
+
+        # 2. Pagos encontrados por memo/ref que contengan el nombre de la OC
+        memo_payments = Payment.search([
+            ('partner_id', '=', order.partner_id.id),
+            ('state', '=', 'posted'),
+            ('payment_type', '=', 'outbound'),
+            ('id', 'not in', advance_payments.ids),
+            '|',
+            ('ref', 'ilike', order.name),
+            *([('memo', 'ilike', order.name)] if 'memo' in Payment._fields else []),
+        ])
+        advance_payments |= memo_payments
+
+        if not advance_payments:
+            _logger.info('[SOMGROUP] No se encontraron anticipos para reconciliar en OC %s', order.name)
+            return
+
+        # ── Reconciliar: buscar la línea payable de la factura y las de los pagos ──
+        invoice_payable_lines = invoice.line_ids.filtered(
+            lambda l: l.account_id.account_type == 'liability_payable'
+            and not l.reconciled
+        )
+
+        if not invoice_payable_lines:
+            _logger.info('[SOMGROUP] No hay líneas payable sin reconciliar en factura %s', invoice.name)
+            return
+
+        payment_payable_lines = self.env['account.move.line']
+        for payment in advance_payments:
+            payment_lines = payment.move_id.line_ids.filtered(
+                lambda l: l.account_id.account_type == 'liability_payable'
+                and not l.reconciled
+            )
+            payment_payable_lines |= payment_lines
+
+        if not payment_payable_lines:
+            _logger.info('[SOMGROUP] No hay líneas payable de pagos sin reconciliar para OC %s', order.name)
+            return
+
+        # Reconciliar todas juntas
+        lines_to_reconcile = invoice_payable_lines | payment_payable_lines
+        try:
+            lines_to_reconcile.reconcile()
+            _logger.info(
+                '[SOMGROUP] Reconciliación exitosa: factura %s con %d pagos anticipos para OC %s',
+                invoice.name, len(advance_payments), order.name
+            )
+        except Exception as e:
+            _logger.warning(
+                '[SOMGROUP] Error al reconciliar anticipos con factura %s OC %s: %s',
+                invoice.name, order.name, e
+            )
 
     # ──────────────────────────────────────────────────────────────────────────
     # Recompute de estados
@@ -491,10 +580,6 @@ class PurchasePaymentSchedule(models.Model):
     def _recompute_from_payments_by_order(self, extra_payments=None):
         """
         Sincroniza state/paid_amount desde contabilidad.
-
-        Fuente principal: pagos reconciliados contra schedule_invoice_id de cada hito.
-        Secundaria: purchase_schedule_id en account.payment.
-        Terciaria: cascade por loose payments del mismo proveedor.
         """
         from datetime import date
 
@@ -525,6 +610,17 @@ class PurchasePaymentSchedule(models.Model):
             remaining_cascade = sum(loose_extra.mapped('amount'))
 
             for schedule in order_schedules:
+                # Para anticipos con advance_payment_id, checar directo
+                if schedule.payment_type in ('advance', 'second_advance') and schedule.advance_payment_id:
+                    if schedule.advance_payment_id.state == 'posted':
+                        schedule.sudo().write({
+                            'paid_amount': schedule.amount,
+                            'remaining_amount': 0.0,
+                            'state': 'paid',
+                            'paid_date': schedule.advance_payment_id.date,
+                        })
+                        continue
+
                 direct = direct_payments.filtered(
                     lambda p: p.purchase_schedule_id == schedule
                 )
@@ -533,14 +629,25 @@ class PurchasePaymentSchedule(models.Model):
                 inv_payments = self._get_payments_for_invoice(schedule.schedule_invoice_id)
                 inv_amount = sum(inv_payments.mapped('amount'))
 
+                # Para balance: considerar también los anticipos reconciliados
+                # que ya reducen el amount_residual de la factura
+                reconciled_advance_amount = 0.0
+                if schedule.payment_type == 'balance' and schedule.schedule_invoice_id:
+                    invoice = schedule.schedule_invoice_id
+                    if invoice.state == 'posted':
+                        # El monto total menos el residual = lo que ya se pagó/reconcilió
+                        reconciled_advance_amount = invoice.amount_total - invoice.amount_residual
+                        # Descontar lo que ya contamos via inv_payments
+                        reconciled_advance_amount = max(0, reconciled_advance_amount - inv_amount)
+
                 # Cascade solo si no hay fuentes directas
                 cascade_amount = 0.0
-                if remaining_cascade > 0 and direct_amount == 0 and inv_amount == 0:
+                if remaining_cascade > 0 and direct_amount == 0 and inv_amount == 0 and reconciled_advance_amount == 0:
                     cascade_amount = min(remaining_cascade, schedule.amount)
                     remaining_cascade -= cascade_amount
 
                 schedule_paid = min(
-                    direct_amount + inv_amount + cascade_amount,
+                    direct_amount + inv_amount + reconciled_advance_amount + cascade_amount,
                     schedule.amount
                 )
 
@@ -573,18 +680,34 @@ class PurchasePaymentSchedule(models.Model):
     # ──────────────────────────────────────────────────────────────────────────
 
     def action_register_payment(self):
+        """
+        Anticipo/Segundo tramo → crea pago directo (sin factura).
+        Balance → abre wizard de pago sobre la factura al 100%.
+        """
         self.ensure_one()
         if self.state == 'paid':
             raise UserError(_('Este hito ya está completamente pagado.'))
 
-        invoice = self._ensure_invoice_exists()
+        if self.payment_type in ('advance', 'second_advance'):
+            # Crear pago directo
+            self._create_advance_payment()
+            return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+        # Balance → necesita factura
+        invoice = self._ensure_payment_or_invoice_exists()
+
+        if not isinstance(invoice, type(self.env['account.move'])):
+            # Si retornó un payment (no debería para balance), reload
+            return {'type': 'ir.actions.client', 'tag': 'reload'}
 
         # Balance en borrador → el contador debe confirmarla primero
-        if self.payment_type == 'balance' and invoice.state == 'draft':
+        if invoice.state == 'draft':
             raise UserError(_(
                 'La factura de balance está en BORRADOR.\n\n'
                 'El contador debe abrirla (botón "📄 Ver Factura"), '
-                'verificar los montos y confirmarla antes de registrar el pago.'
+                'verificar los montos y confirmarla antes de registrar el pago.\n\n'
+                'Al confirmar la factura, los anticipos previos se reconciliarán '
+                'automáticamente reduciendo el saldo a pagar.'
             ))
 
         if invoice.payment_state == 'paid':
@@ -606,10 +729,7 @@ class PurchasePaymentSchedule(models.Model):
             'context': {
                 'active_model': 'account.move',
                 'active_ids': [invoice.id],
-                'default_amount': min(
-                    self.remaining_amount or self.amount,
-                    invoice.amount_residual,
-                ),
+                'default_amount': invoice.amount_residual,
                 'default_purchase_schedule_id': self.id,
             },
         }
@@ -646,18 +766,32 @@ class PurchasePaymentSchedule(models.Model):
 
     def action_view_payments(self):
         self.ensure_one()
+        payment_ids = self.payment_ids.ids
+        if self.advance_payment_id:
+            payment_ids = list(set(payment_ids + [self.advance_payment_id.id]))
         return {
             'name': _('Pagos Contables'),
             'type': 'ir.actions.act_window',
             'res_model': 'account.payment',
             'view_mode': 'list,form',
-            'domain': [('purchase_schedule_id', '=', self.id)],
+            'domain': [('id', 'in', payment_ids)],
         }
 
     def action_view_schedule_invoice(self):
-        """Abre (o crea) la factura vinculada al hito."""
+        """Abre la factura vinculada al hito (solo para balance)."""
         self.ensure_one()
-        invoice = self._ensure_invoice_exists()
+        if self.payment_type in ('advance', 'second_advance'):
+            if self.advance_payment_id:
+                return {
+                    'name': _('Pago de Anticipo'),
+                    'type': 'ir.actions.act_window',
+                    'res_model': 'account.payment',
+                    'view_mode': 'form',
+                    'res_id': self.advance_payment_id.id,
+                }
+            raise UserError(_('Este hito es un anticipo. Use "💵 Pagar" para crear el pago directo.'))
+
+        invoice = self._ensure_payment_or_invoice_exists()
         return {
             'name': _('Factura del Hito'),
             'type': 'ir.actions.act_window',
