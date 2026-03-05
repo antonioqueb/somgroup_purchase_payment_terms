@@ -3,6 +3,8 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
+POSTED_STATES = ('posted', 'in_process')
+
 
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
@@ -31,7 +33,7 @@ class AccountPayment(models.Model):
 
     def _get_related_purchase_orders(self):
         orders = self.env['purchase.order']
-        for payment in self.filtered(lambda p: p.state == 'posted'):
+        for payment in self.filtered(lambda p: p.state in POSTED_STATES):
             for inv in payment._get_reconciled_invoices():
                 orders |= inv.invoice_line_ids.mapped('purchase_line_id.order_id')
         return orders

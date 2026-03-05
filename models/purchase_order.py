@@ -4,6 +4,10 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
+# En Odoo 19, pagos de banco quedan en 'in_process' hasta validación manual.
+# Ambos estados representan un pago confirmado/real.
+POSTED_STATES = ('posted', 'in_process')
+
 
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
@@ -296,11 +300,6 @@ class PurchasePaymentSchedule(models.Model):
             limit=1)
 
     def _get_partner_payable_account(self, partner):
-        """
-        Obtiene la cuenta payable del proveedor.
-        Esto es CLAVE para que el anticipo y la factura compartan la misma cuenta
-        y se puedan reconciliar.
-        """
         account = partner.property_account_payable_id
         if account:
             _logger.info(
@@ -308,13 +307,12 @@ class PurchasePaymentSchedule(models.Model):
                 partner.name, account.code, account.name,
             )
             return account
-        # Fallback
         account = self.env['account.account'].search([
             ('account_type', '=', 'liability_payable'),
             ('active', '=', True),
         ], limit=1)
         _logger.warning(
-            '[SOMGROUP][PAYABLE] Partner %s has NO payable account set, using fallback: %s',
+            '[SOMGROUP][PAYABLE] Partner %s has NO payable account, using fallback: %s',
             partner.name, account.code if account else 'NONE',
         )
         return account
@@ -335,7 +333,7 @@ class PurchasePaymentSchedule(models.Model):
                 )
                 payment = Payment.search([
                     ('move_id', '=', counterpart.move_id.id),
-                    ('state', '=', 'posted'),
+                    ('state', 'in', list(POSTED_STATES)),
                 ], limit=1)
                 if payment:
                     payments |= payment
@@ -358,9 +356,8 @@ class PurchasePaymentSchedule(models.Model):
 
     def _create_advance_payment(self):
         """
-        Crea un pago directo (outbound) al proveedor SIN factura.
-        CLAVE: el destination_account_id DEBE ser la cuenta payable del proveedor
-        para que luego se pueda reconciliar con la factura de balance.
+        Crea pago directo (outbound) al proveedor SIN factura.
+        destination_account_id = cuenta payable del proveedor (CRÍTICO para reconciliación).
         """
         self.ensure_one()
         order = self.order_id
@@ -373,7 +370,6 @@ class PurchasePaymentSchedule(models.Model):
             self.amount, order.currency_id.name, memo,
         )
 
-        # Buscar journal de banco/efectivo
         journal = self.env['account.journal'].search([
             ('type', 'in', ['bank', 'cash']),
             ('company_id', '=', order.company_id.id),
@@ -390,7 +386,6 @@ class PurchasePaymentSchedule(models.Model):
             journal.name, journal.id, journal.type,
         )
 
-        # Obtener cuenta payable del proveedor
         payable_account = self._get_partner_payable_account(order.partner_id)
 
         Payment = self.env['account.payment']
@@ -406,8 +401,7 @@ class PurchasePaymentSchedule(models.Model):
             'purchase_schedule_id': self.id,
         }
 
-        # Forzar la cuenta de destino = payable del proveedor
-        # Esto es CRÍTICO para que la reconciliación funcione
+        # Forzar cuenta destino = payable del proveedor
         if payable_account and 'destination_account_id' in Payment._fields:
             payment_vals['destination_account_id'] = payable_account.id
             _logger.info(
@@ -415,7 +409,6 @@ class PurchasePaymentSchedule(models.Model):
                 payable_account.id, payable_account.code,
             )
 
-        # Memo/referencia
         if 'memo' in Payment._fields:
             payment_vals['memo'] = memo
         elif 'ref' in Payment._fields:
@@ -425,7 +418,6 @@ class PurchasePaymentSchedule(models.Model):
 
         payment = Payment.create(payment_vals)
 
-        # Asegurar ref en el asiento contable
         if payment.move_id:
             payment.move_id.write({'ref': memo})
 
@@ -436,15 +428,20 @@ class PurchasePaymentSchedule(models.Model):
             payment.move_id.id if payment.move_id else 'N/A',
         )
 
-        # Confirmar pago
         payment.action_post()
 
         _logger.info(
-            '[SOMGROUP][ADVANCE] Payment posted: %s | state=%s',
+            '[SOMGROUP][ADVANCE] Payment after action_post: %s | state=%s',
             payment.name, payment.state,
         )
 
-        # Log de las líneas contables del pago para debug
+        if payment.state not in POSTED_STATES:
+            _logger.warning(
+                '[SOMGROUP][ADVANCE] Payment %s unexpected state: %s (expected %s)',
+                payment.name, payment.state, POSTED_STATES,
+            )
+
+        # Log líneas contables del pago
         if payment.move_id:
             for line in payment.move_id.line_ids:
                 _logger.info(
@@ -464,17 +461,11 @@ class PurchasePaymentSchedule(models.Model):
             'paid_date': fields.Date.today(),
         })
 
-        _logger.info(
-            '[SOMGROUP][ADVANCE] Schedule %s marked as paid. Advance payment complete.',
-            self.id,
-        )
+        _logger.info('[SOMGROUP][ADVANCE] Schedule %s marked as paid.', self.id)
         return payment
 
     def _create_balance_invoice(self):
-        """
-        Crea factura al 100% del monto de la OC.
-        Al confirmarla, los anticipos se reconcilian automáticamente.
-        """
+        """Crea factura al 100% del monto de la OC."""
         self.ensure_one()
         order = self.order_id
 
@@ -537,7 +528,6 @@ class PurchasePaymentSchedule(models.Model):
             self.id, order.name,
         )
 
-        # Log líneas de la factura
         for line in invoice.invoice_line_ids:
             _logger.info(
                 '[SOMGROUP][BALANCE] Invoice line: product=%s | qty=%s | price=%s | '
@@ -553,16 +543,16 @@ class PurchasePaymentSchedule(models.Model):
 
     def _reconcile_advances_to_invoice(self, invoice):
         """
-        Busca pagos de anticipo de la misma OC y los reconcilia contra la factura
-        para que el amount_residual refleje solo lo que falta por pagar.
+        Reconcilia pagos de anticipo contra la factura de balance.
+        Acepta pagos en 'posted' o 'in_process'.
         """
         if not invoice:
-            _logger.warning('[SOMGROUP][RECONCILE] No invoice provided for reconciliation.')
+            _logger.warning('[SOMGROUP][RECONCILE] No invoice provided.')
             return
 
         if invoice.state != 'posted':
             _logger.info(
-                '[SOMGROUP][RECONCILE] Invoice %s is in state "%s", skipping reconciliation.',
+                '[SOMGROUP][RECONCILE] Invoice %s state="%s", skipping.',
                 invoice.name, invoice.state,
             )
             return
@@ -578,83 +568,88 @@ class PurchasePaymentSchedule(models.Model):
         # ── Recopilar pagos de anticipo ──────────────────────────────────
         advance_payments = self.env['account.payment']
 
-        # 1. Pagos vinculados via purchase_schedule_id (anticipos del calendario)
+        # 1. Pagos vinculados via schedule
         advance_schedules = order.payment_schedule_ids.filtered(
             lambda s: s.payment_type in ('advance', 'second_advance') and s.advance_payment_id
         )
         for sched in advance_schedules:
-            if sched.advance_payment_id.state == 'posted':
-                advance_payments |= sched.advance_payment_id
+            pay = sched.advance_payment_id
+            if pay.state in POSTED_STATES:
+                advance_payments |= pay
                 _logger.info(
-                    '[SOMGROUP][RECONCILE] Found advance payment via schedule: %s (id=%s) | '
+                    '[SOMGROUP][RECONCILE] Found advance via schedule: %s (id=%s) | '
                     'amount=%s | state=%s',
-                    sched.advance_payment_id.name, sched.advance_payment_id.id,
-                    sched.advance_payment_id.amount, sched.advance_payment_id.state,
+                    pay.name, pay.id, pay.amount, pay.state,
+                )
+            else:
+                _logger.warning(
+                    '[SOMGROUP][RECONCILE] Advance %s state=%s, skipping.',
+                    pay.name, pay.state,
                 )
 
-        # 2. Pagos por ref en el asiento contable
+        # 2. Pagos por memo/ref
         memo_payments = self.env['account.payment'].search([
             ('partner_id', '=', order.partner_id.id),
-            ('state', '=', 'posted'),
+            ('state', 'in', list(POSTED_STATES)),
             ('payment_type', '=', 'outbound'),
             ('id', 'not in', advance_payments.ids),
             ('move_id.ref', 'ilike', order.name),
         ])
         if memo_payments:
             _logger.info(
-                '[SOMGROUP][RECONCILE] Found %d additional advance payments by memo for OC %s: %s',
-                len(memo_payments), order.name, memo_payments.mapped('name'),
+                '[SOMGROUP][RECONCILE] Found %d additional by memo: %s',
+                len(memo_payments), memo_payments.mapped('name'),
             )
             advance_payments |= memo_payments
 
         if not advance_payments:
-            _logger.info(
-                '[SOMGROUP][RECONCILE] No advance payments found for OC %s. Nothing to reconcile.',
-                order.name,
+            _logger.warning(
+                '[SOMGROUP][RECONCILE] No advance payments found for OC %s (states checked: %s).',
+                order.name, POSTED_STATES,
             )
+            # Diagnóstico
+            all_partner_payments = self.env['account.payment'].search([
+                ('partner_id', '=', order.partner_id.id),
+                ('payment_type', '=', 'outbound'),
+            ], limit=20)
+            for p in all_partner_payments:
+                _logger.warning(
+                    '[SOMGROUP][RECONCILE][DIAG] Payment: %s (id=%s) | state=%s | '
+                    'amount=%s | schedule_id=%s | move_ref=%s',
+                    p.name, p.id, p.state, p.amount,
+                    p.purchase_schedule_id.id if p.purchase_schedule_id else None,
+                    p.move_id.ref if p.move_id else 'N/A',
+                )
             return
 
         _logger.info(
-            '[SOMGROUP][RECONCILE] Total advance payments to reconcile: %d | '
-            'Total advance amount: %s',
+            '[SOMGROUP][RECONCILE] Total advance payments: %d | Total amount: %s',
             len(advance_payments), sum(advance_payments.mapped('amount')),
         )
 
-        # ── Buscar líneas payable de la factura (sin reconciliar) ────────
+        # ── Líneas payable de la factura ─────────────────────────────────
         invoice_payable_lines = invoice.line_ids.filtered(
             lambda l: l.account_id.account_type == 'liability_payable'
             and not l.reconciled
         )
 
-        _logger.info(
-            '[SOMGROUP][RECONCILE] Invoice payable lines (unreconciled): %d',
-            len(invoice_payable_lines),
-        )
+        _logger.info('[SOMGROUP][RECONCILE] Invoice payable lines: %d', len(invoice_payable_lines))
         for line in invoice_payable_lines:
             _logger.info(
-                '[SOMGROUP][RECONCILE]   Invoice line id=%s | account=%s (%s) | '
-                'debit=%s | credit=%s | balance=%s | amount_residual=%s | partner=%s',
-                line.id, line.account_id.code, line.account_id.name,
-                line.debit, line.credit, line.balance, line.amount_residual,
-                line.partner_id.name if line.partner_id else 'N/A',
+                '[SOMGROUP][RECONCILE]   INV line id=%s | account=%s | debit=%s | credit=%s | '
+                'amount_residual=%s',
+                line.id, line.account_id.code, line.debit, line.credit, line.amount_residual,
             )
 
         if not invoice_payable_lines:
-            _logger.warning(
-                '[SOMGROUP][RECONCILE] No unreconciled payable lines in invoice %s. '
-                'Invoice may already be reconciled.',
-                invoice.name,
-            )
+            _logger.warning('[SOMGROUP][RECONCILE] No unreconciled payable lines in invoice.')
             return
 
-        # ── Buscar líneas payable de los pagos (sin reconciliar) ─────────
+        # ── Líneas payable de los pagos ──────────────────────────────────
         payment_payable_lines = self.env['account.move.line']
         for payment in advance_payments:
             if not payment.move_id:
-                _logger.warning(
-                    '[SOMGROUP][RECONCILE] Payment %s has no move_id!',
-                    payment.name,
-                )
+                _logger.warning('[SOMGROUP][RECONCILE] Payment %s has no move_id!', payment.name)
                 continue
 
             p_lines = payment.move_id.line_ids.filtered(
@@ -663,105 +658,79 @@ class PurchasePaymentSchedule(models.Model):
             )
 
             _logger.info(
-                '[SOMGROUP][RECONCILE] Payment %s (id=%s) payable lines (unreconciled): %d',
-                payment.name, payment.id, len(p_lines),
+                '[SOMGROUP][RECONCILE] Payment %s (state=%s) payable lines: %d',
+                payment.name, payment.state, len(p_lines),
             )
             for line in p_lines:
                 _logger.info(
-                    '[SOMGROUP][RECONCILE]   Payment line id=%s | account=%s (%s) | '
-                    'debit=%s | credit=%s | balance=%s | amount_residual=%s | partner=%s',
-                    line.id, line.account_id.code, line.account_id.name,
-                    line.debit, line.credit, line.balance, line.amount_residual,
-                    line.partner_id.name if line.partner_id else 'N/A',
+                    '[SOMGROUP][RECONCILE]   PAY line id=%s | account=%s | debit=%s | credit=%s | '
+                    'amount_residual=%s',
+                    line.id, line.account_id.code, line.debit, line.credit, line.amount_residual,
                 )
 
             payment_payable_lines |= p_lines
 
         if not payment_payable_lines:
-            _logger.warning(
-                '[SOMGROUP][RECONCILE] No unreconciled payable lines in advance payments for OC %s. '
-                'Payments may already be reconciled or using wrong accounts.',
-                order.name,
-            )
-
-            # ── DIAGNÓSTICO: Listar TODAS las líneas de los pagos ────────
+            _logger.warning('[SOMGROUP][RECONCILE] No unreconciled payable lines in payments.')
             for payment in advance_payments:
                 if payment.move_id:
                     _logger.warning(
-                        '[SOMGROUP][RECONCILE][DIAG] ALL lines for payment %s (move %s):',
-                        payment.name, payment.move_id.name,
+                        '[SOMGROUP][RECONCILE][DIAG] ALL lines for %s (move %s, state=%s):',
+                        payment.name, payment.move_id.name, payment.move_id.state,
                     )
                     for line in payment.move_id.line_ids:
                         _logger.warning(
-                            '[SOMGROUP][RECONCILE][DIAG]   id=%s | account=%s (%s) | '
-                            'type=%s | debit=%s | credit=%s | reconciled=%s | partner=%s',
-                            line.id,
-                            line.account_id.code, line.account_id.name,
-                            line.account_id.account_type,
+                            '[SOMGROUP][RECONCILE][DIAG]   id=%s | account=%s | type=%s | '
+                            'debit=%s | credit=%s | reconciled=%s',
+                            line.id, line.account_id.code, line.account_id.account_type,
                             line.debit, line.credit, line.reconciled,
-                            line.partner_id.name if line.partner_id else 'N/A',
                         )
             return
 
-        # ── Verificar que las cuentas coincidan ──────────────────────────
+        # ── Verificar cuentas ────────────────────────────────────────────
         inv_accounts = invoice_payable_lines.mapped('account_id')
         pay_accounts = payment_payable_lines.mapped('account_id')
+        common_accounts = inv_accounts & pay_accounts
+
         _logger.info(
-            '[SOMGROUP][RECONCILE] Invoice payable accounts: %s | Payment payable accounts: %s',
-            [(a.id, a.code) for a in inv_accounts],
-            [(a.id, a.code) for a in pay_accounts],
+            '[SOMGROUP][RECONCILE] Inv accounts: %s | Pay accounts: %s | Common: %s',
+            inv_accounts.mapped('code'), pay_accounts.mapped('code'),
+            common_accounts.mapped('code'),
         )
 
-        common_accounts = inv_accounts & pay_accounts
         if not common_accounts:
             _logger.error(
-                '[SOMGROUP][RECONCILE] ⚠ ACCOUNT MISMATCH! Invoice uses accounts %s but '
-                'payments use accounts %s. Reconciliation will fail!',
-                inv_accounts.mapped('code'), pay_accounts.mapped('code'),
+                '[SOMGROUP][RECONCILE] ⚠ ACCOUNT MISMATCH! Cannot reconcile.',
             )
             return
 
-        # ── Reconciliar solo líneas con la misma cuenta ──────────────────
+        # ── Reconciliar ──────────────────────────────────────────────────
         for account in common_accounts:
-            lines_to_reconcile = (
+            lines = (
                 invoice_payable_lines.filtered(lambda l: l.account_id == account)
                 | payment_payable_lines.filtered(lambda l: l.account_id == account)
             )
 
             _logger.info(
-                '[SOMGROUP][RECONCILE] Reconciling %d lines on account %s (%s):',
-                len(lines_to_reconcile), account.code, account.name,
+                '[SOMGROUP][RECONCILE] Reconciling %d lines on account %s', len(lines), account.code,
             )
-            for line in lines_to_reconcile:
-                _logger.info(
-                    '[SOMGROUP][RECONCILE]   line id=%s | move=%s | debit=%s | credit=%s | '
-                    'amount_residual=%s | partner=%s',
-                    line.id, line.move_id.name,
-                    line.debit, line.credit, line.amount_residual,
-                    line.partner_id.name if line.partner_id else 'N/A',
-                )
 
             try:
-                lines_to_reconcile.reconcile()
+                lines.reconcile()
+                invoice.invalidate_recordset(['amount_residual', 'payment_state'])
                 _logger.info(
-                    '[SOMGROUP][RECONCILE] ✓ Reconciliation SUCCESS on account %s | '
-                    'Invoice %s new amount_residual = %s',
-                    account.code, invoice.name, invoice.amount_residual,
+                    '[SOMGROUP][RECONCILE] ✓ SUCCESS | Invoice %s: residual=%s, payment_state=%s',
+                    invoice.name, invoice.amount_residual, invoice.payment_state,
                 )
             except Exception as e:
                 _logger.error(
-                    '[SOMGROUP][RECONCILE] ✗ Reconciliation FAILED on account %s: %s',
-                    account.code, e,
+                    '[SOMGROUP][RECONCILE] ✗ FAILED on account %s: %s', account.code, e,
                 )
 
-        # ── Log final ────────────────────────────────────────────────────
-        # Refrescar invoice para ver el residual actualizado
         invoice.invalidate_recordset(['amount_residual', 'payment_state'])
         _logger.info(
-            '[SOMGROUP][RECONCILE] ═══ FINAL: Invoice %s | amount_total=%s | '
-            'amount_residual=%s | payment_state=%s',
-            invoice.name, invoice.amount_total, invoice.amount_residual,
-            invoice.payment_state,
+            '[SOMGROUP][RECONCILE] ═══ FINAL: Invoice %s | total=%s | residual=%s | state=%s',
+            invoice.name, invoice.amount_total, invoice.amount_residual, invoice.payment_state,
         )
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -787,7 +756,7 @@ class PurchasePaymentSchedule(models.Model):
 
             direct_payments_db = Payment.search([
                 ('purchase_schedule_id', 'in', order_schedules.ids),
-                ('state', '=', 'posted'),
+                ('state', 'in', list(POSTED_STATES)),
             ])
             extra_for_order = extra_payments.filtered(
                 lambda p: p.purchase_schedule_id and p.purchase_schedule_id in order_schedules
@@ -800,16 +769,22 @@ class PurchasePaymentSchedule(models.Model):
             remaining_cascade = sum(loose_extra.mapped('amount'))
 
             for schedule in order_schedules:
-                # Para anticipos con advance_payment_id, checar directo
-                if schedule.payment_type in ('advance', 'second_advance') and schedule.advance_payment_id:
-                    if schedule.advance_payment_id.state == 'posted':
-                        schedule.sudo().write({
-                            'paid_amount': schedule.amount,
-                            'remaining_amount': 0.0,
-                            'state': 'paid',
-                            'paid_date': schedule.advance_payment_id.date,
-                        })
-                        continue
+                # Anticipos con advance_payment_id confirmado
+                if (schedule.payment_type in ('advance', 'second_advance')
+                        and schedule.advance_payment_id
+                        and schedule.advance_payment_id.state in POSTED_STATES):
+                    _logger.info(
+                        '[SOMGROUP][RECOMPUTE] schedule %s has confirmed advance %s (state=%s)',
+                        schedule.id, schedule.advance_payment_id.name,
+                        schedule.advance_payment_id.state,
+                    )
+                    schedule.sudo().write({
+                        'paid_amount': schedule.amount,
+                        'remaining_amount': 0.0,
+                        'state': 'paid',
+                        'paid_date': schedule.advance_payment_id.date,
+                    })
+                    continue
 
                 direct = direct_payments.filtered(
                     lambda p: p.purchase_schedule_id == schedule
@@ -819,14 +794,12 @@ class PurchasePaymentSchedule(models.Model):
                 inv_payments = self._get_payments_for_invoice(schedule.schedule_invoice_id)
                 inv_amount = sum(inv_payments.mapped('amount'))
 
-                # Para balance: considerar anticipos reconciliados que reducen el residual
                 reconciled_advance_amount = 0.0
                 if schedule.payment_type == 'balance' and schedule.schedule_invoice_id:
                     invoice = schedule.schedule_invoice_id
                     if invoice.state == 'posted':
                         reconciled_advance_amount = invoice.amount_total - invoice.amount_residual
                         reconciled_advance_amount = max(0, reconciled_advance_amount - inv_amount)
-
                         _logger.info(
                             '[SOMGROUP][RECOMPUTE] Schedule %s (balance) | invoice %s | '
                             'total=%s | residual=%s | inv_payments=%s | reconciled_advances=%s',
@@ -887,13 +860,11 @@ class PurchasePaymentSchedule(models.Model):
             self._create_advance_payment()
             return {'type': 'ir.actions.client', 'tag': 'reload'}
 
-        # Balance → necesita factura
         invoice = self._ensure_payment_or_invoice_exists()
 
         if not isinstance(invoice, type(self.env['account.move'])):
             return {'type': 'ir.actions.client', 'tag': 'reload'}
 
-        # Balance en borrador → el contador debe confirmarla primero
         if invoice.state == 'draft':
             raise UserError(_(
                 'La factura de balance está en BORRADOR.\n\n'
@@ -903,7 +874,6 @@ class PurchasePaymentSchedule(models.Model):
                 'automáticamente reduciendo el saldo a pagar.'
             ))
 
-        # Si la factura ya está pagada completamente
         if invoice.payment_state == 'paid':
             self.sudo().write({
                 'paid_amount': self.amount,
