@@ -317,6 +317,41 @@ class PurchasePaymentSchedule(models.Model):
         )
         return account
 
+    def _get_payment_move(self, payment):
+        """
+        Odoo 19: obtener el asiento contable de un pago de forma robusta.
+        payment.move_id puede estar vacío en ciertos estados (paid).
+        Fallbacks: move_ids, búsqueda directa en account.move.
+        """
+        # 1. Intento directo
+        if payment.move_id:
+            return payment.move_id
+
+        # 2. Intento via move_ids (Many2many en algunas versiones)
+        if hasattr(payment, 'move_ids') and payment.move_ids:
+            return payment.move_ids[0]
+
+        # 3. Búsqueda directa en account.move
+        move = self.env['account.move'].search([
+            ('payment_id', '=', payment.id),
+        ], limit=1)
+        if move:
+            return move
+
+        # 4. Búsqueda por ref que contenga el memo del pago
+        if payment.name:
+            move = self.env['account.move'].search([
+                ('name', '=', payment.name),
+            ], limit=1)
+            if move:
+                return move
+
+        _logger.warning(
+            '[SOMGROUP][GET_MOVE] Could not find move for payment %s (id=%s, state=%s)',
+            payment.name, payment.id, payment.state,
+        )
+        return self.env['account.move']
+
     def _get_payments_for_invoice(self, invoice):
         Payment = self.env['account.payment']
         if not invoice or invoice.state != 'posted':
@@ -418,14 +453,15 @@ class PurchasePaymentSchedule(models.Model):
 
         payment = Payment.create(payment_vals)
 
-        if payment.move_id:
-            payment.move_id.write({'ref': memo})
+        pay_move = self._get_payment_move(payment)
+        if pay_move:
+            pay_move.write({'ref': memo})
 
         _logger.info(
             '[SOMGROUP][ADVANCE] Payment created: %s (id=%s) | move: %s (id=%s)',
             payment.name, payment.id,
-            payment.move_id.name if payment.move_id else 'N/A',
-            payment.move_id.id if payment.move_id else 'N/A',
+            pay_move.name if pay_move else 'N/A',
+            pay_move.id if pay_move else 'N/A',
         )
 
         payment.action_post()
@@ -442,8 +478,9 @@ class PurchasePaymentSchedule(models.Model):
             )
 
         # Log líneas contables del pago
-        if payment.move_id:
-            for line in payment.move_id.line_ids:
+        pay_move = self._get_payment_move(payment)
+        if pay_move:
+            for line in pay_move.line_ids:
                 _logger.info(
                     '[SOMGROUP][ADVANCE] Move line: account=%s (%s) | debit=%s | credit=%s | '
                     'partner=%s | reconciled=%s | account_type=%s',
@@ -613,12 +650,13 @@ class PurchasePaymentSchedule(models.Model):
                 ('payment_type', '=', 'outbound'),
             ], limit=20)
             for p in all_partner_payments:
+                p_move = self._get_payment_move(p)
                 _logger.warning(
                     '[SOMGROUP][RECONCILE][DIAG] Payment: %s (id=%s) | state=%s | '
                     'amount=%s | schedule_id=%s | move_ref=%s',
                     p.name, p.id, p.state, p.amount,
                     p.purchase_schedule_id.id if p.purchase_schedule_id else None,
-                    p.move_id.ref if p.move_id else 'N/A',
+                    p_move.ref if p_move else 'N/A',
                 )
             return
 
@@ -648,18 +686,19 @@ class PurchasePaymentSchedule(models.Model):
         # ── Líneas payable de los pagos ──────────────────────────────────
         payment_payable_lines = self.env['account.move.line']
         for payment in advance_payments:
-            if not payment.move_id:
-                _logger.warning('[SOMGROUP][RECONCILE] Payment %s has no move_id!', payment.name)
+            pay_move = self._get_payment_move(payment)
+            if not pay_move:
+                _logger.warning('[SOMGROUP][RECONCILE] Payment %s has no move!', payment.name)
                 continue
 
-            p_lines = payment.move_id.line_ids.filtered(
+            p_lines = pay_move.line_ids.filtered(
                 lambda l: l.account_id.account_type == 'liability_payable'
                 and not l.reconciled
             )
 
             _logger.info(
-                '[SOMGROUP][RECONCILE] Payment %s (state=%s) payable lines: %d',
-                payment.name, payment.state, len(p_lines),
+                '[SOMGROUP][RECONCILE] Payment %s (state=%s) move=%s payable lines: %d',
+                payment.name, payment.state, pay_move.name, len(p_lines),
             )
             for line in p_lines:
                 _logger.info(
@@ -673,12 +712,13 @@ class PurchasePaymentSchedule(models.Model):
         if not payment_payable_lines:
             _logger.warning('[SOMGROUP][RECONCILE] No unreconciled payable lines in payments.')
             for payment in advance_payments:
-                if payment.move_id:
+                pay_move = self._get_payment_move(payment)
+                if pay_move:
                     _logger.warning(
                         '[SOMGROUP][RECONCILE][DIAG] ALL lines for %s (move %s, state=%s):',
-                        payment.name, payment.move_id.name, payment.move_id.state,
+                        payment.name, pay_move.name, pay_move.state,
                     )
-                    for line in payment.move_id.line_ids:
+                    for line in pay_move.line_ids:
                         _logger.warning(
                             '[SOMGROUP][RECONCILE][DIAG]   id=%s | account=%s | type=%s | '
                             'debit=%s | credit=%s | reconciled=%s',

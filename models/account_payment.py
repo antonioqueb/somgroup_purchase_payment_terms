@@ -38,10 +38,30 @@ class AccountPayment(models.Model):
                 orders |= inv.invoice_line_ids.mapped('purchase_line_id.order_id')
         return orders
 
+    def _get_payment_move(self):
+        """Obtener el asiento contable del pago de forma robusta."""
+        self.ensure_one()
+        if self.move_id:
+            return self.move_id
+        if hasattr(self, 'move_ids') and self.move_ids:
+            return self.move_ids[0]
+        move = self.env['account.move'].search([
+            ('payment_id', '=', self.id),
+        ], limit=1)
+        if move:
+            return move
+        if self.name:
+            move = self.env['account.move'].search([
+                ('name', '=', self.name),
+            ], limit=1)
+            if move:
+                return move
+        return self.env['account.move']
+
     def _get_reconciled_invoices(self):
         """
-        Odoo 19: account.payment NO tiene line_ids directamente.
-        Las líneas están en payment.move_id.line_ids.
+        Odoo 19: account.payment puede no tener move_id accesible en estado paid.
+        Usa _get_payment_move como fallback robusto.
         """
         self.ensure_one()
         if hasattr(self, 'reconciled_bill_ids') and self.reconciled_bill_ids:
@@ -49,9 +69,10 @@ class AccountPayment(models.Model):
         if hasattr(self, 'reconciled_invoice_ids') and self.reconciled_invoice_ids:
             return self.reconciled_invoice_ids
         moves = self.env['account.move']
-        if not self.move_id:
+        pay_move = self._get_payment_move()
+        if not pay_move:
             return moves
-        for line in self.move_id.line_ids.filtered(
+        for line in pay_move.line_ids.filtered(
             lambda l: l.account_id.account_type == 'liability_payable'
         ):
             for matched in (line.matched_debit_ids | line.matched_credit_ids):
