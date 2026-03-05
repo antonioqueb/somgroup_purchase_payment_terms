@@ -107,7 +107,22 @@
                                 <th class="text-end">MXN</th>
                             </tr>
                         </thead>
-                        <tbody>
+                         <tbody>
+                            <tr>
+                                <td><i class="fa fa-file-text-o me-2 sg-icon--credit"/>Vencimientos con Crédito</td>
+                                <td class="text-end" t-esc="formatUSD(state.summary.credit_usd)"/>
+                                <td class="text-end" t-esc="formatMXN(state.summary.credit_mxn)"/>
+                            </tr>
+                            <tr>
+                                <td><i class="fa fa-ship me-2 sg-icon--sea"/>Fletes Marítimos</td>
+                                <td class="text-end" t-esc="formatUSD(state.summary.freight_sea_usd)"/>
+                                <td class="text-end" t-esc="formatMXN(state.summary.freight_sea_mxn)"/>
+                            </tr>
+                            <tr>
+                                <td><i class="fa fa-truck me-2 sg-icon--land"/>Fletes Terrestres</td>
+                                <td class="text-end">—</td>
+                                <td class="text-end" t-esc="formatMXN(state.summary.freight_land_mxn)"/>
+                            </tr>
                             <tr>
                                 <td><i class="fa fa-arrow-circle-up me-2 sg-icon--advance"/>Anticipos</td>
                                 <td class="text-end" t-esc="formatUSD(state.summary.advances_usd)"/>
