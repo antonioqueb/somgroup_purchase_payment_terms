@@ -279,7 +279,6 @@ class AccountPaymentTerm(models.Model):
             })
 
         else:
-            # Standard — usa el motor nativo de Odoo
             result.append({
                 'type': 'balance',
                 'percent': 100.0,
