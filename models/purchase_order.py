@@ -641,22 +641,60 @@ class PurchasePaymentSchedule(models.Model):
             _logger.info('[SOMGROUP][RECONCILE] No confirmed advances. Nothing to reconcile.')
             return
 
-        # ── ESTRATEGIA DIRECTA: Buscar líneas payable con DÉBITO del proveedor ──
-        # Los pagos outbound generan un DÉBITO en la cuenta payable del proveedor.
-        # Buscamos todas las líneas de débito en esa cuenta para este proveedor
-        # que no estén reconciliadas.
-        payment_debit_lines = self.env['account.move.line'].search([
+        # ── ESTRATEGIA: Buscar líneas outstanding del proveedor ────────────
+        # En Odoo 19, un pago outbound genera:
+        #   - Débito en cuenta "Outstanding Payments" (del diario de banco)
+        #   - Crédito en cuenta del banco
+        # La línea de outstanding payments es la que se puede reconciliar
+        # contra la línea payable de la factura.
+        # Buscamos TODAS las líneas no reconciliadas del proveedor que tengan
+        # amount_residual > 0 (débito neto) en cuentas payable O asset_current (outstanding).
+
+        # Primero: diagnóstico - buscar TODAS las líneas no reconciliadas del proveedor
+        all_unreconciled = self.env['account.move.line'].search([
             ('partner_id', '=', order.partner_id.id),
-            ('account_id', '=', payable_account.id),
-            ('debit', '>', 0),
             ('reconciled', '=', False),
             ('parent_state', '=', 'posted'),
-            # Excluir líneas de la propia factura
             ('move_id', '!=', invoice.id),
+            ('amount_residual', '>', 0),  # débito neto pendiente
         ], order='date asc, id asc')
 
         _logger.info(
-            '[SOMGROUP][RECONCILE] Found %d unreconciled debit lines in payable account for partner %s',
+            '[SOMGROUP][RECONCILE] ALL unreconciled debit-residual lines for partner %s: %d',
+            order.partner_id.name, len(all_unreconciled),
+        )
+        for line in all_unreconciled[:15]:
+            _logger.info(
+                '[SOMGROUP][RECONCILE][SCAN] line id=%s | account=%s (%s) | type=%s | '
+                'debit=%s | credit=%s | amount_residual=%s | move=%s | ref=%s | name=%s',
+                line.id, line.account_id.code, line.account_id.name,
+                line.account_id.account_type,
+                line.debit, line.credit, line.amount_residual,
+                line.move_id.name, line.move_id.ref or 'N/A', line.name or 'N/A',
+            )
+
+        # Buscar líneas que se puedan reconciliar con la factura:
+        # La factura tiene un CRÉDITO en cuenta payable (201.01.001)
+        # El pago tiene un DÉBITO en cuenta payable O outstanding payments
+        # Para reconciliar, ambas deben estar en la MISMA cuenta.
+        #
+        # Si el pago usó outstanding payments (no payable), Odoo necesita
+        # que primero se "aplique" el outstanding credit.
+        # Pero podemos buscar directamente las líneas en la misma cuenta payable.
+        
+        # Estrategia ampliada: buscar en cuenta payable Y en cuentas de tipo
+        # liability_payable (que incluye outstanding payments del proveedor)
+        payment_debit_lines = self.env['account.move.line'].search([
+            ('partner_id', '=', order.partner_id.id),
+            ('account_id.account_type', '=', 'liability_payable'),
+            ('reconciled', '=', False),
+            ('parent_state', '=', 'posted'),
+            ('move_id', '!=', invoice.id),
+            ('amount_residual', '>', 0),
+        ], order='date asc, id asc')
+
+        _logger.info(
+            '[SOMGROUP][RECONCILE] Found %d unreconciled liability_payable debit lines for partner %s',
             len(payment_debit_lines), order.partner_id.name,
         )
 
@@ -719,17 +757,18 @@ class PurchasePaymentSchedule(models.Model):
 
             if is_our_advance:
                 matched_lines |= line
-                remaining_to_match -= line.debit
+                remaining_to_match -= line.amount_residual
                 _logger.info(
-                    '[SOMGROUP][RECONCILE] ✓ Matched line id=%s | debit=%s | remaining=%s | '
-                    'move=%s | ref=%s',
-                    line.id, line.debit, remaining_to_match,
-                    line.move_id.name, line.move_id.ref or 'N/A',
+                    '[SOMGROUP][RECONCILE] ✓ Matched line id=%s | amount_residual=%s | remaining=%s | '
+                    'move=%s | ref=%s | account=%s',
+                    line.id, line.amount_residual, remaining_to_match,
+                    line.move_id.name, line.move_id.ref or 'N/A', line.account_id.code,
                 )
             else:
                 _logger.info(
-                    '[SOMGROUP][RECONCILE] ✗ Skipped line id=%s | debit=%s | move=%s | ref=%s',
-                    line.id, line.debit, line.move_id.name, line.move_id.ref or 'N/A',
+                    '[SOMGROUP][RECONCILE] ✗ Skipped line id=%s | amount_residual=%s | move=%s | ref=%s | account=%s',
+                    line.id, line.amount_residual, line.move_id.name, line.move_id.ref or 'N/A',
+                    line.account_id.code,
                 )
 
         if not matched_lines:
@@ -748,35 +787,76 @@ class PurchasePaymentSchedule(models.Model):
             return
 
         _logger.info(
-            '[SOMGROUP][RECONCILE] Total matched debit lines: %d | Total debit: %s',
-            len(matched_lines), sum(matched_lines.mapped('debit')),
+            '[SOMGROUP][RECONCILE] Total matched debit lines: %d | Total residual: %s',
+            len(matched_lines), sum(matched_lines.mapped('amount_residual')),
         )
 
         # ── Reconciliar ──────────────────────────────────────────────────
-        lines_to_reconcile = invoice_payable_lines | matched_lines
+        # Las líneas de la factura están en cuenta payable (201.01.001)
+        # Las líneas del pago DEBEN estar en la misma cuenta para reconciliar.
+        # Si están en cuenta diferente (outstanding payments), necesitamos
+        # usar el mecanismo de Odoo para aplicar outstanding credits.
+
+        inv_account = invoice_payable_lines[0].account_id
+        same_account_lines = matched_lines.filtered(lambda l: l.account_id == inv_account)
+        diff_account_lines = matched_lines.filtered(lambda l: l.account_id != inv_account)
 
         _logger.info(
-            '[SOMGROUP][RECONCILE] Reconciling %d lines total (invoice + payment):',
-            len(lines_to_reconcile),
+            '[SOMGROUP][RECONCILE] Same account (%s): %d lines | Different account: %d lines',
+            inv_account.code, len(same_account_lines), len(diff_account_lines),
         )
-        for line in lines_to_reconcile:
-            _logger.info(
-                '[SOMGROUP][RECONCILE]   line id=%s | move=%s | debit=%s | credit=%s | '
-                'amount_residual=%s',
-                line.id, line.move_id.name, line.debit, line.credit, line.amount_residual,
-            )
 
-        try:
-            lines_to_reconcile.reconcile()
-            invoice.invalidate_recordset(['amount_residual', 'payment_state'])
+        # Caso 1: Líneas en la misma cuenta → reconciliar directamente
+        if same_account_lines:
+            lines_to_reconcile = invoice_payable_lines | same_account_lines
             _logger.info(
-                '[SOMGROUP][RECONCILE] ✓ SUCCESS | Invoice %s: residual=%s, payment_state=%s',
-                invoice.name, invoice.amount_residual, invoice.payment_state,
+                '[SOMGROUP][RECONCILE] Reconciling %d lines on same account %s:',
+                len(lines_to_reconcile), inv_account.code,
             )
-        except Exception as e:
-            _logger.error(
-                '[SOMGROUP][RECONCILE] ✗ FAILED: %s', e,
+            for line in lines_to_reconcile:
+                _logger.info(
+                    '[SOMGROUP][RECONCILE]   line id=%s | move=%s | debit=%s | credit=%s | '
+                    'amount_residual=%s',
+                    line.id, line.move_id.name, line.debit, line.credit, line.amount_residual,
+                )
+            try:
+                lines_to_reconcile.reconcile()
+                invoice.invalidate_recordset(['amount_residual', 'payment_state'])
+                _logger.info(
+                    '[SOMGROUP][RECONCILE] ✓ Direct reconciliation SUCCESS | '
+                    'Invoice %s: residual=%s, payment_state=%s',
+                    invoice.name, invoice.amount_residual, invoice.payment_state,
+                )
+            except Exception as e:
+                _logger.error('[SOMGROUP][RECONCILE] ✗ Direct reconciliation FAILED: %s', e)
+
+        # Caso 2: Líneas en cuenta diferente → usar js_assign_outstanding_line
+        if diff_account_lines:
+            _logger.info(
+                '[SOMGROUP][RECONCILE] Attempting to apply %d outstanding lines via native method...',
+                len(diff_account_lines),
             )
+            for line in diff_account_lines:
+                try:
+                    # Odoo 19: js_assign_outstanding_line aplica un pago outstanding a una factura
+                    if hasattr(invoice, 'js_assign_outstanding_line'):
+                        invoice.js_assign_outstanding_line(line.id)
+                        _logger.info(
+                            '[SOMGROUP][RECONCILE] ✓ Applied outstanding line %s (amount_residual=%s) '
+                            'to invoice %s via js_assign_outstanding_line',
+                            line.id, line.amount_residual, invoice.name,
+                        )
+                    else:
+                        _logger.warning(
+                            '[SOMGROUP][RECONCILE] js_assign_outstanding_line not available. '
+                            'Line %s (account=%s) cannot be auto-reconciled.',
+                            line.id, line.account_id.code,
+                        )
+                except Exception as e:
+                    _logger.error(
+                        '[SOMGROUP][RECONCILE] ✗ Failed to apply outstanding line %s: %s',
+                        line.id, e,
+                    )
 
         invoice.invalidate_recordset(['amount_residual', 'payment_state'])
         _logger.info(
