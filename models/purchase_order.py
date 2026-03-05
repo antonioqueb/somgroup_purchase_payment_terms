@@ -320,8 +320,7 @@ class PurchasePaymentSchedule(models.Model):
     def _get_payment_move(self, payment):
         """
         Odoo 19: obtener el asiento contable de un pago de forma robusta.
-        payment.move_id puede estar vacío en ciertos estados (paid).
-        Fallbacks: move_ids, búsqueda directa en account.move.
+        payment.move_id puede estar vacío en estado 'paid'.
         """
         # 1. Intento directo
         if payment.move_id:
@@ -331,14 +330,7 @@ class PurchasePaymentSchedule(models.Model):
         if hasattr(payment, 'move_ids') and payment.move_ids:
             return payment.move_ids[0]
 
-        # 3. Búsqueda directa en account.move
-        move = self.env['account.move'].search([
-            ('payment_id', '=', payment.id),
-        ], limit=1)
-        if move:
-            return move
-
-        # 4. Búsqueda por ref que contenga el memo del pago
+        # 3. Búsqueda por nombre del pago (el asiento tiene el mismo name)
         if payment.name:
             move = self.env['account.move'].search([
                 ('name', '=', payment.name),

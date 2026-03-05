@@ -45,11 +45,6 @@ class AccountPayment(models.Model):
             return self.move_id
         if hasattr(self, 'move_ids') and self.move_ids:
             return self.move_ids[0]
-        move = self.env['account.move'].search([
-            ('payment_id', '=', self.id),
-        ], limit=1)
-        if move:
-            return move
         if self.name:
             move = self.env['account.move'].search([
                 ('name', '=', self.name),
