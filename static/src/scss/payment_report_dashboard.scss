@@ -39,6 +39,24 @@ $sg-shadow-sm:      0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02)
 $sg-shadow:         0 2px 8px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
 $sg-transition:     150ms ease;
 
+// ── Scroll fix — Odoo client action containers ─────────────────────────────
+// Odoo Enterprise pone overflow:hidden en los contenedores de client actions.
+// Esto fuerza el scroll para que el dashboard sea navegable.
+
+.o_action_manager {
+    .o_action {
+        &:has(.sg-report) {
+            overflow: auto !important;
+            max-height: 100% !important;
+        }
+    }
+}
+
+// Fallback para navegadores sin :has() — se aplica a .o_content directamente
+.o_content:has(.sg-report) {
+    overflow: auto !important;
+}
+
 // ── Base layout ─────────────────────────────────────────────────────────────
 
 .sg-report {
@@ -46,7 +64,8 @@ $sg-transition:     150ms ease;
     margin: 0 auto;
     padding: 24px 28px 40px;
     background: $sg-bg;
-    min-height: 100vh;
+    min-height: 500px;
+    overflow: visible;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     color: $sg-text;
     font-size: 13.5px;
