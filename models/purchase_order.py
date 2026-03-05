@@ -6,7 +6,7 @@ _logger = logging.getLogger(__name__)
 
 # En Odoo 19, pagos de banco quedan en 'in_process' hasta validación manual.
 # Ambos estados representan un pago confirmado/real.
-POSTED_STATES = ('posted', 'in_process')
+POSTED_STATES = ('posted', 'in_process', 'paid')
 
 
 class PurchaseOrder(models.Model):

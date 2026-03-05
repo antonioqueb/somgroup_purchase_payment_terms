@@ -3,7 +3,7 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-POSTED_STATES = ('posted', 'in_process')
+POSTED_STATES = ('posted', 'in_process', 'paid')
 
 
 class AccountPayment(models.Model):
