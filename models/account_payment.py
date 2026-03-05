@@ -17,8 +17,32 @@ class AccountPayment(models.Model):
 
     def action_post(self):
         res = super().action_post()
+        self._link_advance_to_schedule()
         self._sync_purchase_schedules()
         return res
+
+    def _link_advance_to_schedule(self):
+        """
+        Cuando se confirma un pago con purchase_schedule_id (anticipo),
+        vincularlo al schedule como advance_payment_id y marcar como pagado.
+        """
+        for payment in self.filtered(lambda p: p.purchase_schedule_id):
+            schedule = payment.purchase_schedule_id
+            if (schedule.payment_type in ('advance', 'second_advance')
+                    and not schedule.advance_payment_id):
+                _logger.info(
+                    '[SOMGROUP][ADVANCE] Linking payment %s (id=%s) to schedule %s | '
+                    'OC: %s | Amount: %s',
+                    payment.name, payment.id, schedule.id,
+                    schedule.order_id.name, payment.amount,
+                )
+                schedule.sudo().write({
+                    'advance_payment_id': payment.id,
+                    'paid_amount': schedule.amount,
+                    'remaining_amount': 0.0,
+                    'state': 'paid',
+                    'paid_date': payment.date or fields.Date.today(),
+                })
 
     def action_cancel(self):
         orders = self.env['purchase.order']

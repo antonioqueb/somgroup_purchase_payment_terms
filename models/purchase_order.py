@@ -988,9 +988,44 @@ class PurchasePaymentSchedule(models.Model):
             raise UserError(_('Este hito ya está completamente pagado.'))
 
         if self.payment_type in ('advance', 'second_advance'):
-            self._create_advance_payment()
-            return {'type': 'ir.actions.client', 'tag': 'reload'}
+            # Abrir formulario de pago pre-llenado para que el usuario elija el diario
+            order = self.order_id
+            memo = self._get_advance_memo()
 
+            _logger.info(
+                '[SOMGROUP][ADVANCE] Opening payment form for schedule %s | '
+                'OC: %s | Partner: %s | Amount: %s | Memo: %s',
+                self.id, order.name, order.partner_id.name, self.amount, memo,
+            )
+
+            payment_vals = {
+                'default_payment_type': 'outbound',
+                'default_partner_type': 'supplier',
+                'default_partner_id': order.partner_id.id,
+                'default_amount': self.amount,
+                'default_currency_id': order.currency_id.id,
+                'default_date': fields.Date.today(),
+                'default_purchase_schedule_id': self.id,
+            }
+
+            # Establecer memo
+            Payment = self.env['account.payment']
+            if 'memo' in Payment._fields:
+                payment_vals['default_memo'] = memo
+            elif 'ref' in Payment._fields:
+                payment_vals['default_ref'] = memo
+
+            type_label = dict(self._fields['payment_type'].selection).get(self.payment_type, '')
+            return {
+                'name': _('Registrar Anticipo — {} — {}').format(order.name, type_label),
+                'type': 'ir.actions.act_window',
+                'res_model': 'account.payment',
+                'view_mode': 'form',
+                'target': 'current',
+                'context': payment_vals,
+            }
+
+        # Balance → necesita factura
         invoice = self._ensure_payment_or_invoice_exists()
 
         if not isinstance(invoice, type(self.env['account.move'])):
