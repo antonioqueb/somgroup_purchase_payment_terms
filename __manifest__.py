@@ -16,9 +16,9 @@
     ],
     'assets': {                                  # ← NUEVO BLOQUE
         'web.assets_backend': [
-            'somgroup_import/static/src/scss/payment_report_dashboard.scss',
-            'somgroup_import/static/src/js/payment_report_dashboard.js',
-            'somgroup_import/static/src/xml/payment_report_dashboard.xml',
+            'somgroup_purchase_payment_terms/static/src/scss/payment_report_dashboard.scss',
+            'somgroup_purchase_payment_terms/static/src/js/payment_report_dashboard.js',
+            'somgroup_purchase_payment_terms/static/src/xml/payment_report_dashboard.xml',
         ],
     },
     'installable': True,
