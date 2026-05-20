@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 import logging
@@ -496,9 +497,35 @@ class PurchaseOrder(models.Model):
         if vals_list:
             self.env['purchase.payment.schedule'].create(vals_list)
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super(PurchaseOrder, self).create(vals_list)
+        
+        # SINCRONIZACIÓN AUTOMÁTICA AL CREAR
+        if not self.env.context.get('skip_date_sync'):
+            for record in records:
+                sync_fields = {'bl_date', 'bl_number', 'eta_date'}
+                # Si en la creación venía alguno de los campos clave
+                if any(field in self.env.context.get('default_vals', {}) or field in record for field in sync_fields):
+                    record._sync_dates_to_others({'bl_date': record.bl_date, 'bl_number': record.bl_number, 'eta_date': record.eta_date})
+                    
+        return records
+
     def write(self, vals):
         res = super().write(vals)
 
+        # ---------------------------------------------------------
+        # SINCRONIZACIÓN BIDIRECCIONAL A TORRE DE CONTROL Y PORTAL
+        # ---------------------------------------------------------
+        if not self.env.context.get('skip_date_sync'):
+            sync_fields = {'bl_date', 'bl_number', 'eta_date'}
+            if sync_fields.intersection(vals.keys()):
+                for order in self:
+                    order._sync_dates_to_others(vals)
+
+        # ---------------------------------------------------------
+        # LÓGICA DE RECALCULO DE PAGOS SOMGROUP
+        # ---------------------------------------------------------
         trigger_fields = {
             'purchase_payment_scope',
             'is_import_order',
@@ -525,6 +552,28 @@ class PurchaseOrder(models.Model):
                     order._recalculate_payment_schedule()
 
         return res
+
+    def _sync_dates_to_others(self, vals):
+        """Helper para sincronizar fechas logísticas con Torre de Control y Portal Proveedor"""
+        for order in self:
+            # Sincronizar hacia Torre de Control (Viaje)
+            if 'stock.transit.voyage' in self.env.registry:
+                voyages = self.env['stock.transit.voyage'].sudo().search([('purchase_id', '=', order.id)])
+                v_vals = {}
+                if 'bl_number' in vals: v_vals['bl_number'] = vals['bl_number']
+                if 'eta_date' in vals: v_vals['eta'] = vals['eta_date']
+                if v_vals:
+                    voyages.with_context(skip_date_sync=True).write(v_vals)
+
+            # Sincronizar hacia Portal (Embarque)
+            if 'supplier.shipment' in self.env.registry:
+                shipments = self.env['supplier.shipment'].sudo().search([('purchase_id', '=', order.id)])
+                s_vals = {}
+                if 'bl_number' in vals: s_vals['bl_number'] = vals['bl_number']
+                if 'bl_date' in vals: s_vals['bl_date'] = vals['bl_date']
+                if 'eta_date' in vals: s_vals['eta'] = vals['eta_date']
+                if s_vals:
+                    shipments.with_context(skip_date_sync=True).write(s_vals)
 
 
 class PurchaseOrderContainer(models.Model):
