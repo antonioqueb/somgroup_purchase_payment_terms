@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- ── Heredar vista form de purchase.order ─────────────────────────── -->
     <record id="view_purchase_order_form_somgroup" model="ir.ui.view">
         <field name="name">purchase.order.form.somgroup</field>
         <field name="model">purchase.order</field>
@@ -9,19 +8,27 @@
         <field name="arch" type="xml">
 
             <xpath expr="//field[@name='partner_id']" position="after">
-                <field name="is_import_order" widget="boolean_toggle"
-                       string="¿Es Orden de Importación?"/>
+                <field name="purchase_payment_scope"
+                       widget="radio"
+                       string="Tipo de Compra"/>
+                <field name="is_import_order" invisible="1"/>
+                <field name="is_national_order" invisible="1"/>
+            </xpath>
+
+            <xpath expr="//field[@name='payment_term_id']" position="attributes">
+                <attribute name="domain">['|', ('somgroup_scope', '=', 'both'), ('somgroup_scope', '=', purchase_payment_scope)]</attribute>
             </xpath>
 
             <xpath expr="//field[@name='payment_term_id']/.." position="after">
+
                 <div class="alert alert-warning mb-3"
                      invisible="not payment_schedule_warning">
                     <strong>⚠️ Aviso de Pago:</strong>
                     <field name="payment_schedule_warning" readonly="1" nolabel="1"/>
                 </div>
 
-                <group string="📦 Datos de Embarque (BL / ETA)"
-                       invisible="not is_import_order"
+                <group string="📦 Datos de Embarque — Importación"
+                       invisible="purchase_payment_scope != 'import'"
                        col="2">
                     <group string="Conocimiento de Embarque (BL)">
                         <field name="bl_number" placeholder="Ej. MAEU123456789"/>
@@ -29,28 +36,51 @@
                         <field name="requires_bl_date" invisible="1"/>
                     </group>
                     <group string="Estimado de Llegada">
-                        <field name="eta_date" widget="date"
+                        <field name="eta_date"
+                               widget="date"
                                placeholder="Fecha estimada de arribo"/>
                         <field name="requires_eta" invisible="1"/>
-                        <field name="telex_release_required" readonly="1"
+                        <field name="telex_release_required"
+                               readonly="1"
                                invisible="not telex_release_required"/>
                     </group>
                 </group>
 
-                <group string="💰 Resumen Financiero"
-                       invisible="not is_import_order"
-                       col="4">
-                    <field name="advance_amount"    readonly="1" string="Anticipo"/>
-                    <field name="balance_amount"    readonly="1" string="Saldo Pendiente"/>
-                    <field name="next_payment_date" readonly="1" string="Próx. Vencimiento"/>
-                    <field name="overdue_payments"  invisible="1"/>
+                <group string="🇲🇽 Datos de Compra Nacional"
+                       invisible="purchase_payment_scope != 'national'"
+                       col="2">
+                    <group string="Base de Vencimiento">
+                        <field name="national_due_base"/>
+                        <field name="supplier_invoice_date"
+                               invisible="national_due_base != 'supplier_invoice_date'"/>
+                        <field name="national_reference_date"
+                               invisible="national_due_base != 'manual_date'"/>
+                        <field name="requires_supplier_invoice_date" invisible="1"/>
+                        <field name="requires_national_reference_date" invisible="1"/>
+                    </group>
+                    <group string="Recepción / Entrega">
+                        <field name="national_expected_receipt_date"/>
+                        <field name="national_receipt_date"/>
+                        <field name="requires_national_receipt_date" invisible="1"/>
+                        <field name="national_payment_note"
+                               placeholder="Ej. Pago contra entrega local, crédito acordado, etc."/>
+                    </group>
                 </group>
+
+                <group string="💰 Resumen Financiero SOMGROUP"
+                       col="4">
+                    <field name="advance_amount" readonly="1" string="Anticipo"/>
+                    <field name="balance_amount" readonly="1" string="Saldo Pendiente"/>
+                    <field name="next_payment_date" readonly="1" string="Próx. Vencimiento"/>
+                    <field name="overdue_payments" invisible="1"/>
+                </group>
+
             </xpath>
 
             <xpath expr="//notebook" position="inside">
-                <page string="🚢 Importación / Pagos"
-                      invisible="not is_import_order"
-                      name="import_tab">
+
+                <page string="💳 Pagos SOMGROUP"
+                      name="somgroup_payment_tab">
 
                     <separator string="📅 Calendario de Pagos"/>
 
@@ -60,8 +90,8 @@
                                 type="object"
                                 class="btn btn-primary btn-sm"/>
                         <span class="text-muted small ms-2">
-                            Genera los hitos de pago. Anticipos = pago directo.
-                            Balance = factura al 100% donde se reconcilian los anticipos.
+                            Genera hitos de pago. Importación usa BL / ETA.
+                            Nacional usa la base seleccionada.
                         </span>
                     </div>
 
@@ -70,66 +100,77 @@
                               decoration-danger="state == 'overdue'"
                               decoration-success="state == 'paid'"
                               decoration-warning="state in ('pending', 'partial')">
-                            <field name="payment_type"       string="Tipo de Pago"/>
-                            <field name="percent"            string="% Porcentaje"/>
-                            <field name="amount"             string="Monto"/>
-                            <field name="currency_id"        column_invisible="1"/>
-                            <field name="due_date"           string="Fecha Límite"/>
-                            <field name="days_until_due"     string="Días Restantes" readonly="1"/>
-                            <field name="state" widget="badge"
+
+                            <field name="purchase_payment_scope" string="Tipo" readonly="1"/>
+                            <field name="payment_type" string="Tipo de Pago"/>
+                            <field name="percent" string="% Porcentaje"/>
+                            <field name="amount" string="Monto"/>
+                            <field name="currency_id" column_invisible="1"/>
+                            <field name="due_date" string="Fecha Límite"/>
+                            <field name="days_until_due" string="Días Restantes" readonly="1"/>
+
+                            <field name="state"
+                                   widget="badge"
                                    string="Estado"
                                    decoration-success="state == 'paid'"
                                    decoration-info="state == 'partial'"
                                    decoration-danger="state == 'overdue'"
                                    decoration-warning="state == 'pending'"/>
-                            <field name="paid_date"          optional="show" string="Fecha Pago"/>
-                            <field name="paid_amount"        optional="show" string="Monto Pagado" readonly="1"/>
-                            <field name="remaining_amount"   optional="show" string="Saldo" readonly="1"/>
+
+                            <field name="paid_date" optional="show" string="Fecha Pago"/>
+                            <field name="paid_amount" optional="show" string="Monto Pagado" readonly="1"/>
+                            <field name="remaining_amount" optional="show" string="Saldo" readonly="1"/>
                             <field name="advance_payment_id" optional="show" string="Pago Anticipo" readonly="1"/>
                             <field name="schedule_invoice_id" optional="show" string="Factura" readonly="1"/>
-                            <field name="payment_reference"  string="Referencia"/>
+                            <field name="payment_reference" string="Referencia"/>
                             <field name="is_manual" widget="boolean" string="Manual"/>
-                            <field name="note"               string="Nota"/>
+                            <field name="note" string="Nota"/>
+
                             <button name="action_register_payment"
                                     string="💵 Pagar"
                                     type="object"
                                     class="btn btn-sm btn-success"
                                     invisible="state == 'paid'"/>
+
                             <button name="action_view_schedule_invoice"
                                     string="📄 Ver Doc."
                                     type="object"
                                     class="btn btn-sm btn-info"/>
+
                             <button name="action_view_payments"
                                     string="Ver Pagos"
                                     type="object"
                                     class="btn btn-sm btn-secondary"
                                     invisible="not payment_ids and not advance_payment_id"/>
+
                             <field name="payment_ids" column_invisible="1"/>
                         </list>
                     </field>
 
                 </page>
+
             </xpath>
 
         </field>
     </record>
 
-    <!-- ── Vista list de purchase.order ─────────────────────────────────── -->
     <record id="view_purchase_order_tree_somgroup" model="ir.ui.view">
         <field name="name">purchase.order.tree.somgroup</field>
         <field name="model">purchase.order</field>
         <field name="inherit_id" ref="purchase.purchase_order_tree"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='date_order']" position="after">
-                <field name="bl_date"           optional="show" string="Fecha BL"/>
-                <field name="eta_date"          optional="show" string="ETA"/>
+                <field name="purchase_payment_scope" optional="show" string="Tipo Compra"/>
+                <field name="bl_date" optional="show" string="Fecha BL"/>
+                <field name="eta_date" optional="show" string="ETA"/>
+                <field name="supplier_invoice_date" optional="show" string="Factura Prov."/>
+                <field name="national_expected_receipt_date" optional="hide" string="Recepción Esp."/>
                 <field name="next_payment_date" optional="show" string="Próx. Vcto."/>
-                <field name="overdue_payments"  column_invisible="1"/>
+                <field name="overdue_payments" column_invisible="1"/>
             </xpath>
         </field>
     </record>
 
-    <!-- ── Vista form standalone de purchase.payment.schedule ───────────── -->
     <record id="view_purchase_payment_schedule_form" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.form</field>
         <field name="model">purchase.payment.schedule</field>
@@ -146,9 +187,11 @@
                             type="object"
                             class="btn-secondary"
                             invisible="state == 'paid'"/>
-                    <field name="state" widget="statusbar"
+                    <field name="state"
+                           widget="statusbar"
                            statusbar_visible="pending,partial,paid"/>
                 </header>
+
                 <sheet>
                     <div class="oe_button_box" name="button_box">
                         <button name="action_view_payments"
@@ -158,6 +201,7 @@
                                 invisible="not payment_ids and not advance_payment_id">
                             <field name="payment_ids" widget="statinfo" string="Pagos"/>
                         </button>
+
                         <button name="action_view_schedule_invoice"
                                 type="object"
                                 class="oe_stat_button"
@@ -175,14 +219,17 @@
                     <separator string="Datos del Pago"/>
                     <group col="2">
                         <group string="¿Qué se paga?">
+                            <field name="purchase_payment_scope" string="Tipo Compra" readonly="1"/>
+                            <field name="partner_id" string="Proveedor" readonly="1"/>
                             <field name="payment_type" string="Tipo de Pago"/>
-                            <field name="percent"      string="Porcentaje (%)"/>
-                            <field name="amount"       string="Monto a Pagar"/>
-                            <field name="currency_id"  string="Moneda"/>
-                            <field name="is_manual"    string="Entrada Manual"/>
+                            <field name="percent" string="Porcentaje (%)"/>
+                            <field name="amount" string="Monto a Pagar"/>
+                            <field name="currency_id" string="Moneda"/>
+                            <field name="is_manual" string="Entrada Manual"/>
                         </group>
+
                         <group string="¿Cuándo se paga?">
-                            <field name="due_date"       string="Fecha Límite"/>
+                            <field name="due_date" string="Fecha Límite"/>
                             <field name="days_until_due" string="Días Restantes" readonly="1"/>
                         </group>
                     </group>
@@ -190,22 +237,29 @@
                     <separator string="Estado Contable"/>
                     <group col="2">
                         <group string="Montos">
-                            <field name="paid_amount"       string="Monto Pagado" readonly="1"/>
-                            <field name="remaining_amount"  string="Saldo Restante" readonly="1"/>
-                            <field name="paid_date"         string="Fecha de Pago"/>
+                            <field name="paid_amount" string="Monto Pagado" readonly="1"/>
+                            <field name="remaining_amount" string="Saldo Restante" readonly="1"/>
+                            <field name="paid_date" string="Fecha de Pago"/>
                             <field name="payment_reference" string="Referencia / Folio"/>
                         </group>
+
                         <group string="Documentos">
-                            <field name="advance_payment_id" string="Pago Anticipo" readonly="1"
+                            <field name="advance_payment_id"
+                                   string="Pago Anticipo"
+                                   readonly="1"
                                    invisible="payment_type == 'balance'"/>
-                            <field name="schedule_invoice_id" string="Factura del Hito" readonly="1"
+                            <field name="schedule_invoice_id"
+                                   string="Factura del Hito"
+                                   readonly="1"
                                    invisible="payment_type != 'balance'"/>
                         </group>
                     </group>
 
                     <group col="2">
                         <group string="Notas">
-                            <field name="note" nolabel="1" widget="text"
+                            <field name="note"
+                                   nolabel="1"
+                                   widget="text"
                                    placeholder="Observaciones..."/>
                         </group>
                     </group>
@@ -213,11 +267,12 @@
                     <separator string="Pagos Contables Vinculados" invisible="not payment_ids"/>
                     <field name="payment_ids" readonly="1" invisible="not payment_ids">
                         <list>
-                            <field name="name"     string="Referencia"/>
-                            <field name="date"     string="Fecha"/>
-                            <field name="amount"   string="Monto"/>
+                            <field name="name" string="Referencia"/>
+                            <field name="date" string="Fecha"/>
+                            <field name="amount" string="Monto"/>
                             <field name="currency_id"/>
-                            <field name="state" widget="badge"
+                            <field name="state"
+                                   widget="badge"
                                    decoration-success="state == 'posted'"
                                    decoration-warning="state == 'draft'"
                                    decoration-danger="state == 'cancel'"/>
@@ -228,7 +283,6 @@
         </field>
     </record>
 
-    <!-- ── Vista list de payment schedule ───────────────────────────────── -->
     <record id="view_purchase_payment_schedule_tree" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.tree</field>
         <field name="model">purchase.payment.schedule</field>
@@ -238,26 +292,33 @@
                   decoration-success="state == 'paid'"
                   decoration-info="state == 'partial'"
                   decoration-warning="state == 'pending'">
-                <field name="order_id"            string="Orden de Compra"/>
-                <field name="payment_type"        string="Tipo"/>
-                <field name="percent"             string="%"/>
-                <field name="amount"              string="Monto"/>
+
+                <field name="purchase_payment_scope" string="Tipo Compra"/>
+                <field name="order_id" string="Orden de Compra"/>
+                <field name="partner_id" string="Proveedor"/>
+                <field name="payment_type" string="Tipo"/>
+                <field name="percent" string="%"/>
+                <field name="amount" string="Monto"/>
                 <field name="currency_id"/>
-                <field name="due_date"            string="Fecha Límite"/>
-                <field name="days_until_due"      string="Días"/>
-                <field name="state" widget="badge"
+                <field name="due_date" string="Fecha Límite"/>
+                <field name="days_until_due" string="Días"/>
+
+                <field name="state"
+                       widget="badge"
                        decoration-success="state == 'paid'"
                        decoration-info="state == 'partial'"
                        decoration-danger="state == 'overdue'"
                        decoration-warning="state == 'pending'"/>
-                <field name="paid_date"           string="Fecha Pago"/>
-                <field name="paid_amount"         string="Pagado" readonly="1"/>
-                <field name="remaining_amount"    string="Saldo" readonly="1"/>
-                <field name="advance_payment_id"  optional="show" string="Pago Anticipo" readonly="1"/>
+
+                <field name="paid_date" string="Fecha Pago"/>
+                <field name="paid_amount" string="Pagado" readonly="1"/>
+                <field name="remaining_amount" string="Saldo" readonly="1"/>
+                <field name="advance_payment_id" optional="show" string="Pago Anticipo" readonly="1"/>
                 <field name="schedule_invoice_id" optional="show" string="Factura" readonly="1"/>
-                <field name="payment_reference"   string="Referencia"/>
-                <field name="is_manual"           string="Manual"/>
-                <field name="note"                string="Nota"/>
+                <field name="payment_reference" string="Referencia"/>
+                <field name="is_manual" string="Manual"/>
+                <field name="note" string="Nota"/>
+
                 <button name="action_register_payment"
                         string="💵 Pagar"
                         type="object"
@@ -268,7 +329,6 @@
         </field>
     </record>
 
-    <!-- ── Vista Calendar ───────────────────────────────────────────────── -->
     <record id="view_purchase_payment_schedule_calendar" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.calendar</field>
         <field name="model">purchase.payment.schedule</field>
@@ -278,7 +338,8 @@
                       color="state"
                       quick_create="false"
                       event_limit="5">
-                <field name="order_id"     filters="1"/>
+                <field name="purchase_payment_scope" filters="1"/>
+                <field name="order_id" filters="1"/>
                 <field name="payment_type" filters="1"/>
                 <field name="amount"/>
                 <field name="currency_id"/>
@@ -288,7 +349,6 @@
         </field>
     </record>
 
-    <!-- ── Vista Gantt ──────────────────────────────────────────────────── -->
     <record id="view_purchase_payment_schedule_gantt" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.gantt</field>
         <field name="model">purchase.payment.schedule</field>
@@ -301,6 +361,7 @@
                    pill_label="true"
                    plan="false"
                    precision="{'day': 'day:half', 'week': 'day:half', 'month': 'day:half'}">
+                <field name="purchase_payment_scope"/>
                 <field name="order_id"/>
                 <field name="payment_type"/>
                 <field name="amount"/>
@@ -312,43 +373,91 @@
         </field>
     </record>
 
-    <!-- ── Vista Search ─────────────────────────────────────────────────── -->
     <record id="view_purchase_payment_schedule_search" model="ir.ui.view">
         <field name="name">purchase.payment.schedule.search</field>
         <field name="model">purchase.payment.schedule</field>
         <field name="arch" type="xml">
             <search string="Buscar Pagos">
                 <field name="order_id"/>
+                <field name="partner_id"/>
+                <field name="purchase_payment_scope"/>
                 <field name="due_date"/>
-                <filter string="Pendientes"        name="pending"   domain="[('state','=','pending')]"/>
-                <filter string="Pago Parcial"      name="partial"   domain="[('state','=','partial')]"/>
-                <filter string="Vencidos"          name="overdue"   domain="[('state','=','overdue')]"/>
-                <filter string="Pagados"           name="paid"      domain="[('state','=','paid')]"/>
-                <filter string="Vence esta semana" name="due_week"
+
+                <filter string="Importación"
+                        name="scope_import"
+                        domain="[('purchase_payment_scope','=','import')]"/>
+
+                <filter string="Nacional"
+                        name="scope_national"
+                        domain="[('purchase_payment_scope','=','national')]"/>
+
+                <separator/>
+
+                <filter string="Pendientes"
+                        name="pending"
+                        domain="[('state','=','pending')]"/>
+
+                <filter string="Pago Parcial"
+                        name="partial"
+                        domain="[('state','=','partial')]"/>
+
+                <filter string="Vencidos"
+                        name="overdue"
+                        domain="[('state','=','overdue')]"/>
+
+                <filter string="Pagados"
+                        name="paid"
+                        domain="[('state','=','paid')]"/>
+
+                <filter string="Vence esta semana"
+                        name="due_week"
                         domain="[
                             ('due_date', '!=', False),
                             ('due_date', '&gt;=', context_today().strftime('%Y-%m-%d')),
                             ('state', 'in', ['pending', 'partial'])
                         ]"/>
-                <filter string="Manuales"          name="manual"    domain="[('is_manual','=',True)]"/>
+
+                <filter string="Manuales"
+                        name="manual"
+                        domain="[('is_manual','=',True)]"/>
+
                 <separator/>
-                <filter string="Por Proveedor" name="group_partner" context="{'group_by': 'order_id'}"/>
-                <filter string="Por Tipo"      name="group_type"    context="{'group_by': 'payment_type'}"/>
-                <filter string="Por Estado"    name="group_state"   context="{'group_by': 'state'}"/>
-                <filter string="Por Mes"       name="group_month"   context="{'group_by': 'due_date:month'}"/>
+
+                <filter string="Por Tipo Compra"
+                        name="group_scope"
+                        context="{'group_by': 'purchase_payment_scope'}"/>
+
+                <filter string="Por Proveedor"
+                        name="group_partner"
+                        context="{'group_by': 'partner_id'}"/>
+
+                <filter string="Por Orden"
+                        name="group_order"
+                        context="{'group_by': 'order_id'}"/>
+
+                <filter string="Por Tipo Pago"
+                        name="group_type"
+                        context="{'group_by': 'payment_type'}"/>
+
+                <filter string="Por Estado"
+                        name="group_state"
+                        context="{'group_by': 'state'}"/>
+
+                <filter string="Por Mes"
+                        name="group_month"
+                        context="{'group_by': 'due_date:month'}"/>
             </search>
         </field>
     </record>
 
-    <!-- ── Acción / Menú ────────────────────────────────────────────────── -->
     <record id="action_purchase_payment_schedule" model="ir.actions.act_window">
-        <field name="name">Calendario de Pagos — Importaciones</field>
+        <field name="name">Calendario de Pagos — Compras</field>
         <field name="res_model">purchase.payment.schedule</field>
         <field name="view_mode">list,calendar,gantt,form</field>
         <field name="context">{'search_default_pending': 1}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">No hay pagos programados.</p>
-            <p>Marca una Orden de Compra como "¿Es Orden de Importación?" y presiona
+            <p>Seleccione un término SOMGROUP en la Orden de Compra y presione
                "Calcular Calendario" para generar los hitos de pago.</p>
         </field>
     </record>

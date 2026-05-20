@@ -1,9 +1,20 @@
 {
     'name': 'SOMGROUP - Términos de Pago Importaciones',
-    'version': '19.0.1.5.0',  # ← bumped
+    'version': '19.0.1.6.0',
     'category': 'Purchase',
-    'summary': 'Términos de pago especiales para importaciones con fecha BL y cálculo automático de vencimientos',
-    'description': """...""",
+    'summary': 'Términos de pago especiales para compras nacionales e importaciones con cálculo automático de vencimientos',
+    'description': """
+        Control financiero-logístico de pagos a proveedores para compras de importación
+        y compras nacionales.
+
+        - Importaciones: cálculo por BL, ETA, CAD, contra BL y Telex Release.
+        - Nacionales: cálculo por fecha de OC, confirmación, factura proveedor,
+          recepción esperada, recepción real o fecha manual de referencia.
+        - Calendario de pagos por OC.
+        - Registro de anticipos, segundos tramos y balances.
+        - Factura de balance y conciliación automática de anticipos.
+        - Dashboard mensual con filtro: Todo / Importación / Nacional.
+    """,
     'author': 'Alphaqueb Consulting SAS',
     'depends': ['purchase', 'account'],
     'data': [
@@ -12,9 +23,9 @@
         'views/purchase_order_views.xml',
         'views/payment_term_views.xml',
         'views/account_payment_views.xml',
-        'views/payment_report_views.xml',       # ← NUEVO
+        'views/payment_report_views.xml',
     ],
-    'assets': {                                  # ← NUEVO BLOQUE
+    'assets': {
         'web.assets_backend': [
             'somgroup_purchase_payment_terms/static/src/scss/payment_report_dashboard.scss',
             'somgroup_purchase_payment_terms/static/src/js/payment_report_dashboard.js',

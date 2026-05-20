@@ -4,12 +4,15 @@
 <t t-name="somgroup_import.PaymentReportDashboard">
     <div class="sg-report" t-ref="rootEl">
 
-        <!-- HEADER -->
         <div class="sg-report__header">
             <div class="sg-report__header-left">
                 <h1 class="sg-report__title">Reporte de Pagos a Proveedores</h1>
-                <p class="sg-report__subtitle">SOMGROUP — Control de Compromisos de Pago</p>
+                <p class="sg-report__subtitle">
+                    SOMGROUP — Control de Compromisos de Pago —
+                    <t t-esc="scopeLabel"/>
+                </p>
             </div>
+
             <div class="sg-report__header-right">
                 <div class="sg-report__month-nav">
                     <button class="sg-btn sg-btn--icon" t-on-click="onPrevMonth">
@@ -20,6 +23,7 @@
                         <i class="fa fa-chevron-right"/>
                     </button>
                 </div>
+
                 <div class="sg-report__actions">
                     <button class="sg-btn sg-btn--outline" t-on-click="onRefresh">
                         <i class="fa fa-refresh me-1"/> Actualizar
@@ -31,7 +35,6 @@
             </div>
         </div>
 
-        <!-- LOADING -->
         <div t-if="state.loading" class="sg-report__loading">
             <div class="sg-spinner"/>
             <span>Cargando datos...</span>
@@ -39,7 +42,23 @@
 
         <t t-if="!state.loading">
 
-            <!-- KPI CARDS -->
+            <div class="sg-tabs">
+                <button t-attf-class="sg-tabs__btn #{state.selectedScope === 'import' ? 'sg-tabs__btn--active' : ''}"
+                        t-on-click="setScopeImport">
+                    <i class="fa fa-ship me-1"/> Importación
+                </button>
+
+                <button t-attf-class="sg-tabs__btn #{state.selectedScope === 'national' ? 'sg-tabs__btn--active' : ''}"
+                        t-on-click="setScopeNational">
+                    <i class="fa fa-truck me-1"/> Nacional
+                </button>
+
+                <button t-attf-class="sg-tabs__btn #{state.selectedScope === 'all' ? 'sg-tabs__btn--active' : ''}"
+                        t-on-click="setScopeAll">
+                    <i class="fa fa-list me-1"/> Todo
+                </button>
+            </div>
+
             <div class="sg-kpi-row">
                 <div class="sg-kpi-card sg-kpi-card--total">
                     <div class="sg-kpi-card__icon">
@@ -93,11 +112,11 @@
                 </div>
             </div>
 
-            <!-- RESUMEN EJECUTIVO -->
             <div class="sg-section">
                 <h2 class="sg-section__title">
                     <i class="fa fa-bar-chart me-2"/>Resumen Ejecutivo
                 </h2>
+
                 <div class="sg-summary-table-wrap">
                     <table class="sg-table sg-table--summary">
                         <thead>
@@ -107,38 +126,45 @@
                                 <th class="text-end">MXN</th>
                             </tr>
                         </thead>
-                         <tbody>
+
+                        <tbody>
                             <tr>
                                 <td><i class="fa fa-file-text-o me-2 sg-icon--credit"/>Vencimientos con Crédito</td>
                                 <td class="text-end" t-esc="formatUSD(state.summary.credit_usd)"/>
                                 <td class="text-end" t-esc="formatMXN(state.summary.credit_mxn)"/>
                             </tr>
-                            <tr>
+
+                            <tr t-if="state.selectedScope !== 'national'">
                                 <td><i class="fa fa-ship me-2 sg-icon--sea"/>Fletes Marítimos</td>
                                 <td class="text-end" t-esc="formatUSD(state.summary.freight_sea_usd)"/>
                                 <td class="text-end" t-esc="formatMXN(state.summary.freight_sea_mxn)"/>
                             </tr>
-                            <tr>
+
+                            <tr t-if="state.selectedScope !== 'national'">
                                 <td><i class="fa fa-truck me-2 sg-icon--land"/>Fletes Terrestres</td>
                                 <td class="text-end">—</td>
                                 <td class="text-end" t-esc="formatMXN(state.summary.freight_land_mxn)"/>
                             </tr>
+
                             <tr>
                                 <td><i class="fa fa-arrow-circle-up me-2 sg-icon--advance"/>Anticipos</td>
                                 <td class="text-end" t-esc="formatUSD(state.summary.advances_usd)"/>
                                 <td class="text-end" t-esc="formatMXN(state.summary.advances_mxn)"/>
                             </tr>
+
                             <tr>
                                 <td><i class="fa fa-balance-scale me-2 sg-icon--balance"/>Balances Pendientes</td>
                                 <td class="text-end" t-esc="formatUSD(state.summary.balances_usd)"/>
                                 <td class="text-end" t-esc="formatMXN(state.summary.balances_mxn)"/>
                             </tr>
-                            <tr>
+
+                            <tr t-if="state.selectedScope !== 'national'">
                                 <td><i class="fa fa-university me-2 sg-icon--tax"/>Impuestos de Importación</td>
                                 <td class="text-end">—</td>
                                 <td class="text-end" t-esc="formatMXN(state.summary.taxes_mxn)"/>
                             </tr>
                         </tbody>
+
                         <tfoot>
                             <tr class="sg-table__total-row">
                                 <td><strong>TOTAL</strong></td>
@@ -150,23 +176,26 @@
                 </div>
             </div>
 
-            <!-- TABS -->
             <div class="sg-tabs">
                 <button t-attf-class="sg-tabs__btn #{state.activeTab === 'advances' ? 'sg-tabs__btn--active' : ''}"
                         t-on-click="setTabAdvances">
                     <i class="fa fa-arrow-circle-up me-1"/> Anticipos
                     <span class="sg-tabs__count" t-esc="state.advance_lines.length"/>
                 </button>
+
                 <button t-attf-class="sg-tabs__btn #{state.activeTab === 'balances' ? 'sg-tabs__btn--active' : ''}"
                         t-on-click="setTabBalances">
                     <i class="fa fa-balance-scale me-1"/> Balances
                     <span class="sg-tabs__count" t-esc="state.balance_lines.length"/>
                 </button>
-                <button t-attf-class="sg-tabs__btn #{state.activeTab === 'taxes' ? 'sg-tabs__btn--active' : ''}"
+
+                <button t-if="state.selectedScope !== 'national'"
+                        t-attf-class="sg-tabs__btn #{state.activeTab === 'taxes' ? 'sg-tabs__btn--active' : ''}"
                         t-on-click="setTabTaxes">
                     <i class="fa fa-university me-1"/> Impuestos
                     <span class="sg-tabs__count" t-esc="state.tax_lines.length"/>
                 </button>
+
                 <button t-attf-class="sg-tabs__btn #{state.activeTab === 'future' ? 'sg-tabs__btn--active' : ''}"
                         t-on-click="setTabFuture">
                     <i class="fa fa-calendar me-1"/> Meses Futuros
@@ -174,11 +203,8 @@
                 </button>
             </div>
 
-            <!-- TAB: ANTICIPOS -->
             <div t-if="state.activeTab === 'advances'" class="sg-section sg-section--tab">
-                <h3 class="sg-section__subtitle">
-                    Anticipos y Segundos Tramos
-                </h3>
+                <h3 class="sg-section__subtitle">Anticipos y Segundos Tramos</h3>
 
                 <div t-if="!state.advance_lines.length" class="sg-empty">
                     <i class="fa fa-inbox"/> Sin anticipos programados para este mes.
@@ -199,24 +225,26 @@
                             <th>Nota</th>
                         </tr>
                     </thead>
+
                     <tbody>
                         <t t-foreach="state.advance_lines" t-as="line" t-key="line.id">
                             <tr t-attf-class="sg-table__row sg-table__row--#{line.state}"
                                 t-on-click="onClickSchedule"
                                 t-att-data-schedule-id="line.id"
                                 style="cursor:pointer">
+
                                 <td class="sg-table__order" t-esc="line.order_id ? line.order_id[1] : '—'"/>
                                 <td><span class="sg-type-tag" t-esc="getTypeLabel(line.payment_type)"/></td>
                                 <td class="text-end"><t t-if="line.percent" t-esc="line.percent + '%'"/></td>
-                                <td class="text-end sg-mono" t-esc="formatUSD(line.amount)"/>
+                                <td class="text-end sg-mono" t-esc="formatLineAmount(line, 'amount')"/>
                                 <td t-esc="formatDate(line.due_date)"/>
                                 <td class="text-center">
                                     <span t-attf-class="sg-days sg-days--#{line.alert_color or 'gray'}"
                                           t-esc="line.days_until_due"/>
                                 </td>
                                 <td><span t-att-class="getStateClass(line.state)" t-esc="getStateLabel(line.state)"/></td>
-                                <td class="text-end sg-mono" t-esc="formatUSD(line.paid_amount)"/>
-                                <td class="text-end sg-mono" t-esc="formatUSD(line.remaining_amount)"/>
+                                <td class="text-end sg-mono" t-esc="formatLineAmount(line, 'paid_amount')"/>
+                                <td class="text-end sg-mono" t-esc="formatLineAmount(line, 'remaining_amount')"/>
                                 <td class="sg-table__note" t-esc="line.note or ''"/>
                             </tr>
                         </t>
@@ -224,11 +252,8 @@
                 </table>
             </div>
 
-            <!-- TAB: BALANCES -->
             <div t-if="state.activeTab === 'balances'" class="sg-section sg-section--tab">
-                <h3 class="sg-section__subtitle">
-                    Balances y Liquidaciones
-                </h3>
+                <h3 class="sg-section__subtitle">Balances y Liquidaciones</h3>
 
                 <div t-if="!state.balance_lines.length" class="sg-empty">
                     <i class="fa fa-inbox"/> Sin balances programados para este mes.
@@ -250,24 +275,26 @@
                             <th>Nota</th>
                         </tr>
                     </thead>
+
                     <tbody>
                         <t t-foreach="state.balance_lines" t-as="line" t-key="line.id">
                             <tr t-attf-class="sg-table__row sg-table__row--#{line.state}"
                                 t-on-click="onClickSchedule"
                                 t-att-data-schedule-id="line.id"
                                 style="cursor:pointer">
+
                                 <td class="sg-table__order" t-esc="line.order_id ? line.order_id[1] : '—'"/>
                                 <td><span class="sg-type-tag sg-type-tag--balance" t-esc="getTypeLabel(line.payment_type)"/></td>
                                 <td class="text-end"><t t-if="line.percent" t-esc="line.percent + '%'"/></td>
-                                <td class="text-end sg-mono" t-esc="formatUSD(line.amount)"/>
+                                <td class="text-end sg-mono" t-esc="formatLineAmount(line, 'amount')"/>
                                 <td t-esc="formatDate(line.due_date)"/>
                                 <td class="text-center">
                                     <span t-attf-class="sg-days sg-days--#{line.alert_color or 'gray'}"
                                           t-esc="line.days_until_due"/>
                                 </td>
                                 <td><span t-att-class="getStateClass(line.state)" t-esc="getStateLabel(line.state)"/></td>
-                                <td class="text-end sg-mono" t-esc="formatUSD(line.paid_amount)"/>
-                                <td class="text-end sg-mono" t-esc="formatUSD(line.remaining_amount)"/>
+                                <td class="text-end sg-mono" t-esc="formatLineAmount(line, 'paid_amount')"/>
+                                <td class="text-end sg-mono" t-esc="formatLineAmount(line, 'remaining_amount')"/>
                                 <td class="text-center">
                                     <i t-if="line.is_manual" class="fa fa-hand-paper-o sg-icon--manual"/>
                                 </td>
@@ -278,11 +305,10 @@
                 </table>
             </div>
 
-            <!-- TAB: IMPUESTOS -->
-            <div t-if="state.activeTab === 'taxes'" class="sg-section sg-section--tab">
-                <h3 class="sg-section__subtitle">
-                    Impuestos de Importación (Contenedores)
-                </h3>
+            <div t-if="state.activeTab === 'taxes' and state.selectedScope !== 'national'"
+                 class="sg-section sg-section--tab">
+
+                <h3 class="sg-section__subtitle">Impuestos de Importación (Contenedores)</h3>
 
                 <div t-if="!state.tax_lines.length" class="sg-empty">
                     <i class="fa fa-inbox"/> Sin contenedores registrados.
@@ -301,6 +327,7 @@
                             <th>Notas</th>
                         </tr>
                     </thead>
+
                     <tbody>
                         <t t-foreach="state.tax_lines" t-as="tax" t-key="tax.id">
                             <tr>
@@ -308,14 +335,17 @@
                                 <td t-esc="tax.order"/>
                                 <td t-esc="tax.type"/>
                                 <td class="text-end sg-mono" t-esc="formatMXN(tax.tax_amount)"/>
-                                <td><span t-att-class="getTaxStateClass(tax.state)"
-                                          t-esc="tax.state === 'paid' ? 'Pagado' : 'Pendiente'"/></td>
+                                <td>
+                                    <span t-att-class="getTaxStateClass(tax.state)"
+                                          t-esc="tax.state === 'paid' ? 'Pagado' : 'Pendiente'"/>
+                                </td>
                                 <td t-esc="formatDate(tax.paid_date)"/>
                                 <td class="sg-mono" t-esc="tax.pedimento or '—'"/>
                                 <td class="sg-table__note" t-esc="tax.notes or ''"/>
                             </tr>
                         </t>
                     </tbody>
+
                     <tfoot>
                         <tr class="sg-table__total-row">
                             <td colspan="3"><strong>Total Impuestos</strong></td>
@@ -328,11 +358,8 @@
                 </table>
             </div>
 
-            <!-- TAB: MESES FUTUROS -->
             <div t-if="state.activeTab === 'future'" class="sg-section sg-section--tab">
-                <h3 class="sg-section__subtitle">
-                    Proyección — Meses Futuros
-                </h3>
+                <h3 class="sg-section__subtitle">Proyección — Meses Futuros</h3>
 
                 <div t-if="!state.future_months.length" class="sg-empty">
                     <i class="fa fa-calendar-o"/> Sin compromisos proyectados.
@@ -342,11 +369,12 @@
                     <div class="sg-future-month">
                         <div class="sg-future-month__header">
                             <h4 class="sg-future-month__title" t-esc="getMonthLabel(fm.month)"/>
-                            <span class="sg-future-month__total" t-esc="formatUSD(fm.total_usd)"/>
+                            <span class="sg-future-month__total" t-esc="formatFutureTotals(fm)"/>
                             <span class="sg-future-month__count">
                                 <t t-esc="fm.lines.length"/> compromiso(s)
                             </span>
                         </div>
+
                         <table class="sg-table sg-table--compact">
                             <thead>
                                 <tr>
@@ -358,15 +386,17 @@
                                     <th>Nota</th>
                                 </tr>
                             </thead>
+
                             <tbody>
                                 <t t-foreach="fm.lines" t-as="line" t-key="line.id">
                                     <tr t-on-click="onClickSchedule"
                                         t-att-data-schedule-id="line.id"
                                         style="cursor:pointer"
                                         t-attf-class="sg-table__row sg-table__row--#{line.state}">
+
                                         <td t-esc="line.order_id ? line.order_id[1] : '—'"/>
                                         <td><span class="sg-type-tag" t-esc="getTypeLabel(line.payment_type)"/></td>
-                                        <td class="text-end sg-mono" t-esc="formatUSD(line.amount)"/>
+                                        <td class="text-end sg-mono" t-esc="formatLineAmount(line, 'amount')"/>
                                         <td t-esc="formatDate(line.due_date)"/>
                                         <td><span t-att-class="getStateClass(line.state)" t-esc="getStateLabel(line.state)"/></td>
                                         <td class="sg-table__note" t-esc="line.note or ''"/>
@@ -378,7 +408,6 @@
                 </t>
             </div>
 
-            <!-- FOOTER -->
             <div class="sg-report__footer">
                 <span>SOMGROUP</span>
                 <span>Tipo de cambio referencia: $<t t-esc="state.exchange_rate"/> MXN/USD</span>

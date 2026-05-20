@@ -1,50 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- ── Heredar vista form de account.payment.term ───────────────────── -->
     <record id="view_payment_term_form_somgroup" model="ir.ui.view">
         <field name="name">account.payment.term.form.somgroup</field>
         <field name="model">account.payment.term</field>
         <field name="inherit_id" ref="account.view_payment_term_form"/>
         <field name="arch" type="xml">
+
             <xpath expr="//field[@name='note']" position="after">
-                <separator string="Configuración SOMGROUP — Importaciones"/>
+
+                <separator string="Configuración SOMGROUP — Compras"/>
+
                 <group col="2">
+                    <field name="somgroup_scope" string="Aplica a"/>
                     <field name="somgroup_term_type" widget="radio"/>
-                    <field name="payment_term_note" placeholder="Instrucciones para el área de Compras..."/>
+                    <field name="payment_term_note"
+                           colspan="2"
+                           placeholder="Instrucciones para Compras / Tesorería..."/>
                 </group>
 
-                <!-- Campos anticipo / tramos — visibles cuando aplica -->
-                <group col="4"
-                       invisible="somgroup_term_type in ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance', 'against_delivery']">
-                    <field name="advance_percent"/>
+                <group string="Importación"
+                       col="4"
+                       invisible="somgroup_term_type not in [
+                            'advance_balance',
+                            'days_after_bl',
+                            'days_after_invoice',
+                            'against_delivery',
+                            'full_advance',
+                            'advance_days_invoice',
+                            'advance_days_arrival'
+                       ]">
+
+                    <field name="advance_percent"
+                           invisible="somgroup_term_type in ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance']"/>
+
                     <field name="second_advance_percent"
                            invisible="somgroup_term_type != 'advance_days_arrival'"/>
+
                     <field name="balance_days"
                            invisible="somgroup_term_type in ['standard', 'full_advance', 'against_delivery']"/>
+
+                    <field name="days_before_eta"
+                           string="Días Antes de ETA"
+                           invisible="somgroup_term_type not in ['against_delivery', 'advance_balance', 'advance_days_arrival']"/>
                 </group>
 
-                <!-- Campos contra entrega / ETA -->
-                <group col="4"
-                       invisible="somgroup_term_type in ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance']">
+                <group string="Compra Nacional"
+                       col="4"
+                       invisible="somgroup_term_type not in [
+                            'national_days_after_base',
+                            'national_against_receipt',
+                            'national_advance_balance'
+                       ]">
+
+                    <field name="national_due_base"
+                           invisible="somgroup_term_type == 'national_against_receipt'"/>
+
                     <field name="advance_percent"
-                           invisible="somgroup_term_type != 'against_delivery'"/>
-                    <field name="days_before_eta"/>
+                           invisible="somgroup_term_type == 'national_days_after_base'"/>
+
+                    <field name="balance_days"
+                           invisible="somgroup_term_type == 'national_against_receipt'"/>
+
+                    <field name="days_before_eta"
+                           string="Días Antes de Recepción"
+                           invisible="somgroup_term_type != 'national_against_receipt'"/>
                 </group>
 
-                <!-- Días para balance — solo para días después de BL/factura -->
-                <group col="2"
-                       invisible="somgroup_term_type not in ['days_after_bl', 'days_after_invoice']">
-                    <field name="balance_days"/>
-                </group>
-
-                <!-- Indicadores de solo lectura -->
-                <group col="2">
+                <group string="Indicadores Operativos"
+                       col="3">
                     <field name="requires_bl_date" readonly="1"/>
                     <field name="requires_eta" readonly="1"/>
+                    <field name="requires_supplier_invoice_date" readonly="1"/>
+                    <field name="requires_national_receipt_date" readonly="1"/>
+                    <field name="requires_national_reference_date" readonly="1"/>
                     <field name="is_manual_scheduling" readonly="1"/>
                 </group>
+
             </xpath>
+
         </field>
     </record>
 

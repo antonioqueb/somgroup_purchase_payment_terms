@@ -12,27 +12,44 @@ class AccountPaymentRegister(models.TransientModel):
         string='Hito de Pago OC',
     )
 
+    def _is_somgroup_scheduled_purchase(self, order):
+        return bool(
+            order
+            and order.payment_schedule_ids
+            and order.payment_term_id
+            and order.payment_term_id.somgroup_term_type != 'standard'
+        )
+
     def _create_payment_vals_from_wizard(self, batch_result):
         vals = super()._create_payment_vals_from_wizard(batch_result)
+
         if self.purchase_schedule_id:
             vals['purchase_schedule_id'] = self.purchase_schedule_id.id
+
         return vals
 
     def action_create_payments(self):
         res = super().action_create_payments()
+
         try:
             orders = self.env['purchase.order']
             active_ids = self.env.context.get('active_ids', [])
+
             if active_ids and self.env.context.get('active_model') == 'account.move':
                 invoices = self.env['account.move'].browse(active_ids)
+
                 for inv in invoices:
                     orders |= inv.invoice_line_ids.mapped('purchase_line_id.order_id').filtered(
-                        lambda o: o.is_import_order and o.payment_schedule_ids
+                        self._is_somgroup_scheduled_purchase
                     )
+
             if self.purchase_schedule_id:
                 orders |= self.purchase_schedule_id.order_id
+
             if orders:
                 orders.mapped('payment_schedule_ids')._recompute_from_payments_by_order()
+
         except Exception as e:
             _logger.warning('[SOMGROUP] Error en sync post-pago: %s', e)
+
         return res

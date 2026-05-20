@@ -11,7 +11,6 @@ class PaymentReportDashboard extends Component {
         this.action = useService("action");
         this.rootRef = useRef("rootEl");
 
-        // Force scroll on Odoo Enterprise ancestor containers
         onMounted(() => {
             this._fixScroll();
         });
@@ -20,6 +19,7 @@ class PaymentReportDashboard extends Component {
             loading: true,
             selectedMonth: this._getCurrentMonth(),
             selectedYear: this._getCurrentYear(),
+            selectedScope: "import",
             summary: {
                 total_usd: 0,
                 total_mxn: 0,
@@ -64,19 +64,21 @@ class PaymentReportDashboard extends Component {
     }
 
     _fixScroll() {
-        // Walk up the DOM from our root element and force overflow:auto
-        // on all Odoo containers that block scrolling
         var el = this.rootRef.el;
         if (!el) { return; }
+
         var parent = el.parentElement;
         var maxLevels = 10;
         var i = 0;
+
         while (parent && i < maxLevels) {
             var cls = parent.className || "";
-            if (cls.indexOf("o_action_manager") !== -1 ||
+            if (
+                cls.indexOf("o_action_manager") !== -1 ||
                 cls.indexOf("o_action") !== -1 ||
                 cls.indexOf("o_content") !== -1 ||
-                cls.indexOf("o_client_action") !== -1) {
+                cls.indexOf("o_client_action") !== -1
+            ) {
                 parent.style.overflow = "auto";
                 parent.style.maxHeight = "none";
                 parent.style.height = "auto";
@@ -98,10 +100,36 @@ class PaymentReportDashboard extends Component {
         return this.monthName + " " + this.state.selectedYear;
     }
 
-    // ── Data loading ────────────────────────────────────────────────────
+    get scopeLabel() {
+        if (this.state.selectedScope === "import") {
+            return "Importación";
+        }
+        if (this.state.selectedScope === "national") {
+            return "Nacional";
+        }
+        return "Todo";
+    }
+
+    _getScopeDomain() {
+        if (this.state.selectedScope === "all") {
+            return [];
+        }
+        return [["purchase_payment_scope", "=", this.state.selectedScope]];
+    }
+
+    _getContainerDomain() {
+        if (this.state.selectedScope === "national") {
+            return [["id", "=", 0]];
+        }
+        if (this.state.selectedScope === "import") {
+            return [["purchase_payment_scope", "=", "import"]];
+        }
+        return [];
+    }
 
     async _loadData() {
         this.state.loading = true;
+
         try {
             var data = await this.orm.call(
                 "purchase.payment.schedule",
@@ -110,6 +138,7 @@ class PaymentReportDashboard extends Component {
                 {
                     month: this.state.selectedMonth,
                     year: this.state.selectedYear,
+                    scope: this.state.selectedScope,
                 }
             );
             this._applyData(data);
@@ -117,6 +146,7 @@ class PaymentReportDashboard extends Component {
             console.error("[SOMGROUP] Error loading report data via RPC, falling back:", e);
             await this._loadFromSchedules();
         }
+
         this.state.loading = false;
     }
 
@@ -129,14 +159,17 @@ class PaymentReportDashboard extends Component {
             var endYear = month === 12 ? year + 1 : year;
             var endDate = endYear + "-" + String(endMonth).padStart(2, "0") + "-01";
 
+            var scopeDomain = this._getScopeDomain();
+
             var currentSchedules = await this.orm.searchRead(
                 "purchase.payment.schedule",
                 [
                     ["due_date", ">=", startDate],
                     ["due_date", "<", endDate],
-                ],
+                ].concat(scopeDomain),
                 [
-                    "order_id", "payment_type", "percent", "amount",
+                    "order_id", "partner_id", "purchase_payment_scope",
+                    "payment_type", "percent", "amount",
                     "currency_id", "due_date", "state", "paid_amount",
                     "remaining_amount", "is_manual", "note",
                     "days_until_due", "alert_color",
@@ -149,9 +182,10 @@ class PaymentReportDashboard extends Component {
                 [
                     ["due_date", ">=", endDate],
                     ["state", "in", ["pending", "partial", "overdue"]],
-                ],
+                ].concat(scopeDomain),
                 [
-                    "order_id", "payment_type", "percent", "amount",
+                    "order_id", "partner_id", "purchase_payment_scope",
+                    "payment_type", "percent", "amount",
                     "currency_id", "due_date", "state", "paid_amount",
                     "remaining_amount", "is_manual", "note",
                 ],
@@ -160,16 +194,19 @@ class PaymentReportDashboard extends Component {
 
             var allPending = await this.orm.searchRead(
                 "purchase.payment.schedule",
-                [["state", "in", ["pending", "partial", "overdue"]]],
+                [["state", "in", ["pending", "partial", "overdue"]]].concat(scopeDomain),
                 ["id", "state", "is_manual"],
                 { limit: 500 }
             );
 
             var containers = await this.orm.searchRead(
                 "purchase.order.container",
-                [],
-                ["name", "order_id", "container_type", "tax_amount",
-                 "tax_state", "tax_paid_date", "pedimento", "notes"],
+                this._getContainerDomain(),
+                [
+                    "name", "order_id", "purchase_payment_scope",
+                    "container_type", "tax_amount",
+                    "tax_state", "tax_paid_date", "pedimento", "notes",
+                ],
                 { order: "tax_paid_date desc, id desc", limit: 100 }
             );
 
@@ -179,9 +216,45 @@ class PaymentReportDashboard extends Component {
         }
     }
 
+    _getCurrencyName(record) {
+        if (!record) {
+            return "USD";
+        }
+
+        if (record.currency_name) {
+            return record.currency_name;
+        }
+
+        if (Array.isArray(record.currency_id)) {
+            return record.currency_id[1] || "USD";
+        }
+
+        if (typeof record.currency_id === "string") {
+            return record.currency_id;
+        }
+
+        return "USD";
+    }
+
+    _amountPair(amount, currency) {
+        amount = amount || 0;
+        currency = currency || "USD";
+
+        if (currency === "MXN") {
+            return {
+                usd: this.state.exchange_rate ? amount / this.state.exchange_rate : 0,
+                mxn: amount,
+            };
+        }
+
+        return {
+            usd: amount,
+            mxn: amount * this.state.exchange_rate,
+        };
+    }
+
     _processSchedules(currentSchedules, futureSchedules, allPending, containers) {
         var s = this.state;
-        var rate = s.exchange_rate;
 
         s.counters.total_schedules = allPending.length;
         s.counters.pending = allPending.filter(function (r) { return r.state === "pending"; }).length;
@@ -193,6 +266,7 @@ class PaymentReportDashboard extends Component {
         s.advance_lines = currentSchedules.filter(function (r) {
             return r.payment_type === "advance" || r.payment_type === "second_advance";
         });
+
         s.balance_lines = currentSchedules.filter(function (r) {
             return r.payment_type === "balance";
         });
@@ -212,40 +286,66 @@ class PaymentReportDashboard extends Component {
         });
 
         var advUSD = 0;
-        var i;
-        for (i = 0; i < s.advance_lines.length; i++) {
-            advUSD += s.advance_lines[i].amount || 0;
-        }
+        var advMXN = 0;
         var balUSD = 0;
-        for (i = 0; i < s.balance_lines.length; i++) {
-            balUSD += s.balance_lines[i].amount || 0;
-        }
+        var balMXN = 0;
         var taxMXN = 0;
+        var i;
+        var pair;
+        var currency;
+
+        for (i = 0; i < s.advance_lines.length; i++) {
+            currency = this._getCurrencyName(s.advance_lines[i]);
+            pair = this._amountPair(s.advance_lines[i].amount, currency);
+            advUSD += pair.usd;
+            advMXN += pair.mxn;
+        }
+
+        for (i = 0; i < s.balance_lines.length; i++) {
+            currency = this._getCurrencyName(s.balance_lines[i]);
+            pair = this._amountPair(s.balance_lines[i].amount, currency);
+            balUSD += pair.usd;
+            balMXN += pair.mxn;
+        }
+
         for (i = 0; i < s.tax_lines.length; i++) {
             taxMXN += s.tax_lines[i].tax_amount || 0;
         }
-        var totalUSD = advUSD + balUSD;
 
-        s.summary.total_usd = totalUSD;
-        s.summary.total_mxn = totalUSD * rate + taxMXN;
+        s.summary.total_usd = advUSD + balUSD;
+        s.summary.total_mxn = advMXN + balMXN + taxMXN;
         s.summary.advances_usd = advUSD;
-        s.summary.advances_mxn = advUSD * rate;
+        s.summary.advances_mxn = advMXN;
         s.summary.balances_usd = balUSD;
-        s.summary.balances_mxn = balUSD * rate;
+        s.summary.balances_mxn = balMXN;
         s.summary.taxes_mxn = taxMXN;
 
         var monthGroups = {};
+
         for (i = 0; i < futureSchedules.length; i++) {
             var sched = futureSchedules[i];
             if (!sched.due_date) { continue; }
+
             var d = new Date(sched.due_date);
             var key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+
             if (!monthGroups[key]) {
-                monthGroups[key] = { month: key, lines: [], total_usd: 0 };
+                monthGroups[key] = {
+                    month: key,
+                    lines: [],
+                    total_usd: 0,
+                    total_mxn: 0,
+                };
             }
+
+            currency = this._getCurrencyName(sched);
+            pair = this._amountPair(sched.amount, currency);
+
             monthGroups[key].lines.push(sched);
-            monthGroups[key].total_usd += sched.amount || 0;
+            monthGroups[key].total_usd += pair.usd;
+            monthGroups[key].total_mxn += pair.mxn;
         }
+
         s.future_months = Object.values(monthGroups).sort(function (a, b) {
             return a.month.localeCompare(b.month);
         });
@@ -253,23 +353,28 @@ class PaymentReportDashboard extends Component {
 
     _applyData(data) {
         if (!data) { return; }
+
         Object.assign(this.state.summary, data.summary || {});
         Object.assign(this.state.counters, data.counters || {});
+
         this.state.advance_lines = data.advance_lines || [];
         this.state.balance_lines = data.balance_lines || [];
         this.state.tax_lines = data.tax_lines || [];
         this.state.future_months = data.future_months || [];
+
         if (data.exchange_rate) {
             this.state.exchange_rate = data.exchange_rate;
         }
     }
 
-    // ── Formatting ──────────────────────────────────────────────────────
-
     formatCurrency(value, currency) {
         if (!value && value !== 0) { return "\u2014"; }
+
+        currency = currency || "USD";
+
         var sym = currency === "MXN" ? "$" : (currency === "EUR" ? "\u20ac" : "$");
         var suffix = currency ? " " + currency : "";
+
         return sym + Number(value).toLocaleString("en-US", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -284,9 +389,19 @@ class PaymentReportDashboard extends Component {
         return this.formatCurrency(value, "MXN");
     }
 
+    formatLineAmount(line, fieldName) {
+        return this.formatCurrency(line[fieldName], this._getCurrencyName(line));
+    }
+
+    formatFutureTotals(monthData) {
+        return this.formatUSD(monthData.total_usd) + " / " + this.formatMXN(monthData.total_mxn);
+    }
+
     formatDate(dateStr) {
         if (!dateStr) { return "\u2014"; }
+
         var d = new Date(dateStr + "T12:00:00");
+
         return d.toLocaleDateString("es-MX", {
             day: "2-digit",
             month: "short",
@@ -336,8 +451,6 @@ class PaymentReportDashboard extends Component {
         return months[parseInt(parts[1])] + " " + parts[0];
     }
 
-    // ── Navigation (named methods for t-on-click) ───────────────────────
-
     onPrevMonth() {
         this.changeMonth(-1);
     }
@@ -349,10 +462,20 @@ class PaymentReportDashboard extends Component {
     async changeMonth(delta) {
         var m = this.state.selectedMonth + delta;
         var y = this.state.selectedYear;
-        if (m > 12) { m = 1; y++; }
-        if (m < 1) { m = 12; y--; }
+
+        if (m > 12) {
+            m = 1;
+            y++;
+        }
+
+        if (m < 1) {
+            m = 12;
+            y--;
+        }
+
         this.state.selectedMonth = m;
         this.state.selectedYear = y;
+
         await this._loadData();
     }
 
@@ -362,6 +485,21 @@ class PaymentReportDashboard extends Component {
 
     onExport() {
         window.print();
+    }
+
+    async setScopeAll() {
+        this.state.selectedScope = "all";
+        await this._loadData();
+    }
+
+    async setScopeImport() {
+        this.state.selectedScope = "import";
+        await this._loadData();
+    }
+
+    async setScopeNational() {
+        this.state.selectedScope = "national";
+        await this._loadData();
     }
 
     setTabAdvances() {
@@ -380,10 +518,9 @@ class PaymentReportDashboard extends Component {
         this.state.activeTab = "future";
     }
 
-    // ── Actions ──────────────────────────────────────────────────────────
-
     onClickSchedule(ev) {
         var scheduleId = parseInt(ev.currentTarget.dataset.scheduleId);
+
         if (scheduleId) {
             this.action.doAction({
                 type: "ir.actions.act_window",
@@ -400,7 +537,7 @@ class PaymentReportDashboard extends Component {
             type: "ir.actions.act_window",
             res_model: "purchase.payment.schedule",
             views: [[false, "list"], [false, "form"]],
-            domain: [["state", "in", ["pending", "partial"]]],
+            domain: [["state", "in", ["pending", "partial"]]].concat(this._getScopeDomain()),
             target: "current",
             name: "Pagos Pendientes",
         });
@@ -411,7 +548,7 @@ class PaymentReportDashboard extends Component {
             type: "ir.actions.act_window",
             res_model: "purchase.payment.schedule",
             views: [[false, "list"], [false, "form"]],
-            domain: [["state", "=", "overdue"]],
+            domain: [["state", "=", "overdue"]].concat(this._getScopeDomain()),
             target: "current",
             name: "Pagos Vencidos",
         });
@@ -424,6 +561,7 @@ class PaymentReportDashboard extends Component {
         var endMonth = month === 12 ? 1 : month + 1;
         var endYear = month === 12 ? year + 1 : year;
         var endDate = endYear + "-" + String(endMonth).padStart(2, "0") + "-01";
+
         this.action.doAction({
             type: "ir.actions.act_window",
             res_model: "purchase.payment.schedule",
@@ -432,7 +570,7 @@ class PaymentReportDashboard extends Component {
                 ["state", "=", "paid"],
                 ["due_date", ">=", startDate],
                 ["due_date", "<", endDate],
-            ],
+            ].concat(this._getScopeDomain()),
             target: "current",
             name: "Pagos del Mes",
         });
