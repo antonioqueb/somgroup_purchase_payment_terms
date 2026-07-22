@@ -13,6 +13,15 @@ class AccountPaymentTerm(models.Model):
     ], string='Aplica a', default='both',
        help='Permite separar términos para compras de importación, nacionales o ambos flujos.')
 
+    som_usage = fields.Selection([
+        ('both', 'Compras y Ventas'),
+        ('purchase', 'Solo Compras'),
+        ('sale', 'Solo Ventas'),
+    ], string='Visible en', default='both', required=True,
+       help='Dónde se ofrece este término de pago: solo en órdenes de compra, '
+            'solo en órdenes de venta, o en ambas. Los documentos existentes '
+            'no se alteran; el filtro aplica al elegir el término.')
+
     somgroup_term_type = fields.Selection([
         ('advance_balance', 'Importación: Anticipo + Balance (% fijo)'),
         ('days_after_bl', 'Importación: N días después de BL'),

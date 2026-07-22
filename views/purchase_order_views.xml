@@ -16,7 +16,7 @@
             </xpath>
 
             <xpath expr="//field[@name='payment_term_id']" position="attributes">
-                <attribute name="domain">['|', ('somgroup_scope', '=', 'both'), ('somgroup_scope', '=', purchase_payment_scope)]</attribute>
+                <attribute name="domain">[('som_usage', 'in', ('both', 'purchase')), '|', ('somgroup_scope', '=', 'both'), ('somgroup_scope', '=', purchase_payment_scope)]</attribute>
             </xpath>
 
             <xpath expr="//field[@name='payment_term_id']/.." position="after">

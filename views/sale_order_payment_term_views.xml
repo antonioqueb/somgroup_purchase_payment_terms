@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Órdenes de VENTA solo ofrecen términos visibles en ventas -->
+    <record id="view_order_form_payment_term_usage" model="ir.ui.view">
+        <field name="name">sale.order.form.payment.term.usage</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='payment_term_id']" position="attributes">
+                <attribute name="domain">[('som_usage', 'in', ('both', 'sale'))]</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

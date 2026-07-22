@@ -1,6 +1,6 @@
 {
     'name': 'SOMGROUP - Términos de Pago Importaciones',
-    'version': '19.0.1.6.0',
+    'version': '19.0.1.7.0',
     'category': 'Purchase',
     'summary': 'Términos de pago especiales para compras nacionales e importaciones con cálculo automático de vencimientos',
     'description': """
@@ -16,11 +16,12 @@
         - Dashboard mensual con filtro: Todo / Importación / Nacional.
     """,
     'author': 'Alphaqueb Consulting SAS',
-    'depends': ['purchase', 'account'],
+    'depends': ['purchase', 'account', 'sale'],
     'data': [
         'security/ir.model.access.csv',
         'data/payment_term_data.xml',
         'views/purchase_order_views.xml',
+        'views/sale_order_payment_term_views.xml',
         'views/payment_term_views.xml',
         'views/account_payment_views.xml',
         'views/payment_report_views.xml',

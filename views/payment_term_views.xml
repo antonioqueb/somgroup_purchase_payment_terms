@@ -12,6 +12,7 @@
                 <separator string="Configuración SOMGROUP — Compras"/>
 
                 <group col="2">
+                    <field name="som_usage" widget="radio" options="{'horizontal': true}"/>
                     <field name="somgroup_scope" string="Aplica a"/>
                     <field name="somgroup_term_type" widget="radio"/>
                     <field name="payment_term_note"
