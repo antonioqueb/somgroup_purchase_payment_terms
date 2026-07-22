@@ -1,6 +1,6 @@
 {
     'name': 'SOMGROUP - Términos de Pago Importaciones',
-    'version': '19.0.1.7.1',
+    'version': '19.0.1.7.2',
     'category': 'Purchase',
     'summary': 'Términos de pago especiales para compras nacionales e importaciones con cálculo automático de vencimientos',
     'description': """
