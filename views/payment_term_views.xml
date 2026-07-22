@@ -9,19 +9,22 @@
 
             <xpath expr="//field[@name='note']" position="after">
 
-                <separator string="Configuración SOMGROUP — Compras"/>
+                <separator string="Configuración SOMGROUP"/>
 
-                <group col="2">
-                    <field name="som_usage" widget="radio" options="{'horizontal': true}"/>
-                    <field name="somgroup_scope" string="Aplica a"/>
-                    <field name="somgroup_term_type" widget="radio"/>
-                    <field name="payment_term_note"
-                           colspan="2"
-                           placeholder="Instrucciones para Compras / Tesorería..."/>
+                <!-- Uso y tipo: el tipo de término es un DESPLEGABLE (11
+                     opciones con etiquetas largas no caben como radio). -->
+                <group>
+                    <group string="Visibilidad">
+                        <field name="som_usage" widget="radio"/>
+                        <field name="somgroup_scope" string="Aplica a"/>
+                    </group>
+                    <group string="Cálculo de Vencimientos">
+                        <field name="somgroup_term_type" string="Tipo de término"/>
+                    </group>
                 </group>
 
-                <group string="Importación"
-                       col="4"
+                <!-- Parámetros del cálculo: dos columnas legibles -->
+                <group string="Parámetros — Importación"
                        invisible="somgroup_term_type not in [
                             'advance_balance',
                             'days_after_bl',
@@ -31,51 +34,67 @@
                             'advance_days_invoice',
                             'advance_days_arrival'
                        ]">
-
-                    <field name="advance_percent"
-                           invisible="somgroup_term_type in ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance']"/>
-
-                    <field name="second_advance_percent"
-                           invisible="somgroup_term_type != 'advance_days_arrival'"/>
-
-                    <field name="balance_days"
-                           invisible="somgroup_term_type in ['standard', 'full_advance', 'against_delivery']"/>
-
-                    <field name="days_before_eta"
-                           string="Días Antes de ETA"
-                           invisible="somgroup_term_type not in ['against_delivery', 'advance_balance', 'advance_days_arrival']"/>
+                    <group>
+                        <field name="advance_percent"
+                               invisible="somgroup_term_type in ['standard', 'days_after_bl', 'days_after_invoice', 'full_advance']"/>
+                        <field name="second_advance_percent"
+                               invisible="somgroup_term_type != 'advance_days_arrival'"/>
+                    </group>
+                    <group>
+                        <field name="balance_days"
+                               invisible="somgroup_term_type in ['standard', 'full_advance', 'against_delivery']"/>
+                        <field name="days_before_eta"
+                               string="Días Antes de ETA"
+                               invisible="somgroup_term_type not in ['against_delivery', 'advance_balance', 'advance_days_arrival']"/>
+                    </group>
                 </group>
 
-                <group string="Compra Nacional"
-                       col="4"
+                <group string="Parámetros — Compra Nacional"
                        invisible="somgroup_term_type not in [
                             'national_days_after_base',
                             'national_against_receipt',
                             'national_advance_balance'
                        ]">
-
-                    <field name="national_due_base"
-                           invisible="somgroup_term_type == 'national_against_receipt'"/>
-
-                    <field name="advance_percent"
-                           invisible="somgroup_term_type == 'national_days_after_base'"/>
-
-                    <field name="balance_days"
-                           invisible="somgroup_term_type == 'national_against_receipt'"/>
-
-                    <field name="days_before_eta"
-                           string="Días Antes de Recepción"
-                           invisible="somgroup_term_type != 'national_against_receipt'"/>
+                    <group>
+                        <field name="national_due_base"
+                               invisible="somgroup_term_type == 'national_against_receipt'"/>
+                        <field name="advance_percent"
+                               invisible="somgroup_term_type == 'national_days_after_base'"/>
+                    </group>
+                    <group>
+                        <field name="balance_days"
+                               invisible="somgroup_term_type == 'national_against_receipt'"/>
+                        <field name="days_before_eta"
+                               string="Días Antes de Recepción"
+                               invisible="somgroup_term_type != 'national_against_receipt'"/>
+                    </group>
                 </group>
 
-                <group string="Indicadores Operativos"
-                       col="3">
-                    <field name="requires_bl_date" readonly="1"/>
-                    <field name="requires_eta" readonly="1"/>
-                    <field name="requires_supplier_invoice_date" readonly="1"/>
-                    <field name="requires_national_receipt_date" readonly="1"/>
-                    <field name="requires_national_reference_date" readonly="1"/>
-                    <field name="is_manual_scheduling" readonly="1"/>
+                <!-- Nota operativa a TODO lo ancho -->
+                <group string="Nota Operativa">
+                    <field name="payment_term_note" nolabel="1" colspan="2"
+                           placeholder="Instrucciones para Compras / Tesorería..."/>
+                </group>
+
+                <!-- Indicadores calculados: solo los que APLICAN al término -->
+                <group string="Requisitos del Término"
+                       invisible="somgroup_term_type == 'standard'">
+                    <group>
+                        <field name="requires_bl_date" readonly="1"
+                               invisible="not requires_bl_date"/>
+                        <field name="requires_eta" readonly="1"
+                               invisible="not requires_eta"/>
+                        <field name="requires_supplier_invoice_date" readonly="1"
+                               invisible="not requires_supplier_invoice_date"/>
+                    </group>
+                    <group>
+                        <field name="requires_national_receipt_date" readonly="1"
+                               invisible="not requires_national_receipt_date"/>
+                        <field name="requires_national_reference_date" readonly="1"
+                               invisible="not requires_national_reference_date"/>
+                        <field name="is_manual_scheduling" readonly="1"
+                               invisible="not is_manual_scheduling"/>
+                    </group>
                 </group>
 
             </xpath>
