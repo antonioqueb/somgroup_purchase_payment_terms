@@ -467,6 +467,7 @@
               name="Calendario de Pagos"
               parent="purchase.menu_purchase_root"
               action="action_purchase_payment_schedule"
-              sequence="25"/>
+              sequence="25"
+              groups="purchase.group_purchase_user"/>
 
 </odoo>

@@ -13,6 +13,7 @@
               name="Reporte de Pagos"
               parent="purchase.menu_purchase_root"
               action="action_payment_report_dashboard"
-              sequence="26"/>
+              sequence="26"
+              groups="purchase.group_purchase_user"/>
 
 </odoo>
