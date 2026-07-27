@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from odoo.tools.float_utils import float_compare
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -455,6 +456,22 @@ class PurchaseOrder(models.Model):
                         }
                     }
 
+    def button_cancel(self):
+        """Al cancelar la OC, los hitos limpios (sin pago/factura) se eliminan
+        para que no queden 'por pagar' de una compra cancelada. Los hitos con
+        pagos/facturas se conservan como historial (y el dashboard ya filtra
+        OCs canceladas)."""
+        res = super().button_cancel()
+        for order in self:
+            clean = order.payment_schedule_ids.filtered(
+                lambda s: not s.payment_ids
+                and not s.schedule_invoice_id
+                and not s.advance_payment_id
+            )
+            if clean:
+                clean.unlink()
+        return res
+
     def action_calculate_payment_schedule(self):
         for order in self:
             if not order.payment_term_id:
@@ -467,6 +484,23 @@ class PurchaseOrder(models.Model):
 
     def _recalculate_payment_schedule(self):
         self.ensure_one()
+
+        # GUARD ANTES de borrar: si ya hay hitos comprometidos (pago/factura),
+        # recalcular borraría los hitos limpios (p. ej. el saldo del 70%) y el
+        # return de abajo impediría regenerarlos — el saldo por pagar
+        # desaparecía del calendario en silencio.
+        committed = self.payment_schedule_ids.filtered(
+            lambda l: l.payment_ids or l.schedule_invoice_id or l.advance_payment_id
+        )
+        if committed:
+            raise UserError(_(
+                'La OC %(order)s ya tiene hitos con pagos o facturas vinculados '
+                '(%(names)s). No se puede recalcular el calendario automáticamente: '
+                'ajusta los hitos pendientes de forma manual.'
+            ) % {
+                'order': self.name,
+                'names': ', '.join(committed.mapped('display_name')),
+            })
 
         pending_clean = self.payment_schedule_ids.filtered(
             lambda l: l.state == 'pending'
@@ -537,6 +571,10 @@ class PurchaseOrder(models.Model):
             'national_expected_receipt_date',
             'national_receipt_date',
             'national_reference_date',
+            # Editar líneas cambia amount_total: sin esto, agregar un
+            # contenedor a la OC dejaba los hitos con montos viejos en
+            # silencio (el anticipo se pagaba sobre el total anterior).
+            'order_line',
         }
 
         if trigger_fields.intersection(vals.keys()):
@@ -550,6 +588,14 @@ class PurchaseOrder(models.Model):
                 )
                 if not has_committed:
                     order._recalculate_payment_schedule()
+                elif 'order_line' in vals:
+                    # Hay pagos/facturas: no se recalcula solo, pero el
+                    # cambio de montos ya NO pasa desapercibido.
+                    order.message_post(body=_(
+                        '⚠ Se modificaron las líneas de la OC pero el calendario '
+                        'de pagos tiene hitos con pagos/facturas y NO se recalculó. '
+                        'Revisa y ajusta los hitos pendientes manualmente.'
+                    ))
 
         return res
 
@@ -737,6 +783,42 @@ class PurchasePaymentSchedule(models.Model):
     paid_date = fields.Date(string='Fecha Pago Real', store=True)
     payment_reference = fields.Char(string='Referencia Pago / SPEI')
 
+    def _somgroup_advance_paid_vals(self, payment):
+        """Vals para registrar un anticipo con el MONTO REAL del pago.
+
+        Convierte de moneda si el pago se hizo en otra divisa y marca
+        'partial' cuando el pago no cubre el hito completo (antes cualquier
+        pago posteado marcaba el hito 100% pagado).
+        """
+        self.ensure_one()
+
+        paid = payment.amount or 0.0
+        if (
+            payment.currency_id
+            and self.currency_id
+            and payment.currency_id != self.currency_id
+        ):
+            paid = payment.currency_id._convert(
+                paid,
+                self.currency_id,
+                payment.company_id or self.env.company,
+                payment.date or fields.Date.today(),
+            )
+
+        paid = min(paid, self.amount or 0.0)
+        rounding = (self.currency_id and self.currency_id.rounding) or 0.01
+        fully_paid = float_compare(
+            paid, self.amount or 0.0, precision_rounding=rounding
+        ) >= 0
+
+        return {
+            'advance_payment_id': payment.id,
+            'paid_amount': paid,
+            'remaining_amount': max((self.amount or 0.0) - paid, 0.0),
+            'state': 'paid' if fully_paid else 'partial',
+            'paid_date': payment.date or fields.Date.today(),
+        }
+
     days_until_due = fields.Integer(
         string='Días para Vencer',
         compute='_compute_days_until_due',
@@ -798,6 +880,9 @@ class PurchasePaymentSchedule(models.Model):
 
         scope = scope if scope in ('import', 'national') else False
         scope_domain = [('purchase_payment_scope', '=', scope)] if scope else []
+        # OCs canceladas fuera del dashboard: sus hitos pendientes seguían
+        # sumando en tesorería y podían inducir el pago de algo cancelado.
+        scope_domain += [('order_id.state', 'not in', ('cancel',))]
 
         start_date = date_cls(year, month, 1)
         if month == 12:
@@ -837,7 +922,7 @@ class PurchasePaymentSchedule(models.Model):
         usd_currency = self.env.ref('base.USD', raise_if_not_found=False)
         mxn_currency = self.env.ref('base.MXN', raise_if_not_found=False)
 
-        rate = 17.33
+        rate = 17.33  # último recurso absoluto (sin monedas configuradas)
         if usd_currency and mxn_currency:
             try:
                 rate = usd_currency._convert(
@@ -847,7 +932,14 @@ class PurchasePaymentSchedule(models.Model):
                     today,
                 )
             except Exception:
-                pass
+                # Fallback con la tasa almacenada más reciente, no con un
+                # número congelado de 2024; y el fallo queda en el log.
+                _logger.exception(
+                    '[SOMGROUP] Fallo al convertir USD→MXN para el dashboard; '
+                    'usando tasa almacenada.'
+                )
+                if usd_currency.rate:
+                    rate = 1.0 / usd_currency.rate
 
         def _amount_to_usd_mxn(amount, currency):
             amount = amount or 0.0
@@ -1336,11 +1428,12 @@ class PurchasePaymentSchedule(models.Model):
                 if order.name.upper() in combined and 'ANTICIPO' in combined:
                     is_our_advance = True
 
-            if not is_our_advance:
-                for sched in advance_schedules:
-                    if abs(line.debit - sched.amount) < 0.01:
-                        is_our_advance = True
-                        break
+            # ELIMINADO el 4º criterio (coincidencia por monto puro): marcaba
+            # como "nuestro anticipo" cualquier apunte del proveedor cuyo
+            # debit (en MXN) coincidiera con el monto del hito (en USD) —
+            # podía reconciliar el anticipo de OTRA OC del mismo proveedor.
+            # Solo se aceptan coincidencias con referencia explícita a esta OC
+            # o al pago del hito.
 
             if is_our_advance:
                 matched_lines |= line
@@ -1424,12 +1517,13 @@ class PurchasePaymentSchedule(models.Model):
                     and schedule.advance_payment_id
                     and schedule.advance_payment_id.state in POSTED_STATES
                 ):
-                    schedule.sudo().write({
-                        'paid_amount': schedule.amount,
-                        'remaining_amount': 0.0,
-                        'state': 'paid',
-                        'paid_date': schedule.advance_payment_id.date,
-                    })
+                    # Monto REAL del pago (antes se forzaba pagado completo
+                    # aunque el anticipo se hubiera pagado parcial).
+                    vals = schedule._somgroup_advance_paid_vals(
+                        schedule.advance_payment_id
+                    )
+                    vals.pop('advance_payment_id', None)
+                    schedule.sudo().write(vals)
                     continue
 
                 direct = direct_payments.filtered(
@@ -1438,7 +1532,11 @@ class PurchasePaymentSchedule(models.Model):
 
                 direct_amount = sum(direct.mapped('amount'))
 
+                # DEDUP: un pago hecho por el wizard queda vinculado al hito
+                # (direct) Y reconciliado a su factura (inv). Sumarlo en ambos
+                # lados marcaba pagado completo un hito pagado a la mitad.
                 inv_payments = self._get_payments_for_invoice(schedule.schedule_invoice_id)
+                inv_payments = inv_payments - direct
                 inv_amount = sum(inv_payments.mapped('amount'))
 
                 reconciled_advance_amount = 0.0

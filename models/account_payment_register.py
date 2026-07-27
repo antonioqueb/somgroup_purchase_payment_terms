@@ -49,7 +49,11 @@ class AccountPaymentRegister(models.TransientModel):
             if orders:
                 orders.mapped('payment_schedule_ids')._recompute_from_payments_by_order()
 
-        except Exception as e:
-            _logger.warning('[SOMGROUP] Error en sync post-pago: %s', e)
+        except Exception:
+            # El pago SÍ se registró; solo falló el resync de hitos. Se deja
+            # traceback completo (antes solo un warning con el str del error,
+            # imposible de diagnosticar) y los estados se corrigen en el
+            # siguiente resync.
+            _logger.exception('[SOMGROUP] Error en sync post-pago (hitos con estado viejo hasta el próximo resync).')
 
         return res

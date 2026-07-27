@@ -24,7 +24,12 @@ class AccountPayment(models.Model):
     def _link_advance_to_schedule(self):
         """
         Cuando se confirma un pago con purchase_schedule_id (anticipo),
-        vincularlo al schedule como advance_payment_id y marcar como pagado.
+        vincularlo al schedule con el MONTO REAL pagado.
+
+        Antes se escribía paid_amount = schedule.amount sin comparar contra el
+        pago: un anticipo de $9,000 pagado con $4,500 quedaba "Pagado" con
+        saldo 0. Ahora se usa el monto real (convertido de moneda si aplica) y
+        el estado es 'partial' cuando no cubre el hito completo.
         """
         for payment in self.filtered(lambda p: p.purchase_schedule_id):
             schedule = payment.purchase_schedule_id
@@ -36,13 +41,9 @@ class AccountPayment(models.Model):
                     payment.name, payment.id, schedule.id,
                     schedule.order_id.name, payment.amount,
                 )
-                schedule.sudo().write({
-                    'advance_payment_id': payment.id,
-                    'paid_amount': schedule.amount,
-                    'remaining_amount': 0.0,
-                    'state': 'paid',
-                    'paid_date': payment.date or fields.Date.today(),
-                })
+                schedule.sudo().write(
+                    schedule._somgroup_advance_paid_vals(payment)
+                )
 
     def action_cancel(self):
         orders = self.env['purchase.order']

@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from odoo import models, fields, api
+from odoo.exceptions import UserError
 
 
 class AccountPaymentTerm(models.Model):
@@ -359,6 +360,14 @@ class AccountPaymentTerm(models.Model):
             advance_pct = self.advance_percent or 30.0
             second_pct = self.second_advance_percent or 0.0
             balance_pct = 100.0 - advance_pct - second_pct
+
+            if balance_pct < 0:
+                raise UserError(
+                    f'El término de pago "{self.name}" está mal capturado: '
+                    f'anticipo {advance_pct:.0f}% + segundo anticipo '
+                    f'{second_pct:.0f}% suman más de 100%. Corrígelo antes de '
+                    'generar el calendario.'
+                )
 
             self._append_advance_line(
                 result,
