@@ -378,6 +378,29 @@ class PurchaseOrder(models.Model):
         for rec in self:
             rec.is_import_order = rec.purchase_payment_scope == 'import'
 
+    @api.onchange('payment_schedule_ids', 'amount_total')
+    def _onchange_som_autobalance_payment_schedule(self):
+        """El BALANCE se cuadra solo.
+
+        Al ajustar % o monto de cualquier tramo (anticipo/segundo tramo) —
+        p. ej. se pagó de más o de menos — la línea Balance/Liquidación NO
+        pagada absorbe el remanente: su monto y su % se recalculan para que
+        el calendario siempre cierre contra el total de la orden.
+        """
+        total = self.amount_total or 0.0
+        if not total or not self.payment_schedule_ids:
+            return
+        balances = self.payment_schedule_ids.filtered(
+            lambda l: l.payment_type == 'balance' and l.state != 'paid')
+        if not balances:
+            return
+        target = balances[-1]
+        others = self.payment_schedule_ids - target
+        remaining = max(0.0, total - sum(others.mapped('amount')))
+        target.amount = self.currency_id.round(remaining) \
+            if self.currency_id else remaining
+        target.percent = round(remaining / total * 100.0, 2)
+
     @api.onchange('payment_term_id', 'purchase_payment_scope')
     def _onchange_payment_term_defaults(self):
         for rec in self:
@@ -781,6 +804,24 @@ class PurchasePaymentSchedule(models.Model):
     )
 
     paid_date = fields.Date(string='Fecha Pago Real', store=True)
+
+    # ── Sincronía % ⇄ monto: el usuario NUNCA calcula a mano ──────────────
+    # Capturas % → se calcula el monto; ajustas el monto (pagaste de más o
+    # de menos) → se recalcula el %. El cuadre de la línea Balance lo hace
+    # _onchange_som_autobalance_payment_schedule en la orden.
+    @api.onchange('percent')
+    def _onchange_som_percent_sync_amount(self):
+        total = self.order_id.amount_total or 0.0
+        if total and self.state != 'paid':
+            currency = self.currency_id or self.order_id.currency_id
+            amount = total * (self.percent or 0.0) / 100.0
+            self.amount = currency.round(amount) if currency else amount
+
+    @api.onchange('amount')
+    def _onchange_som_amount_sync_percent(self):
+        total = self.order_id.amount_total or 0.0
+        if total and self.state != 'paid':
+            self.percent = round((self.amount or 0.0) / total * 100.0, 2)
     payment_reference = fields.Char(string='Referencia Pago / SPEI')
 
     def _somgroup_advance_paid_vals(self, payment):

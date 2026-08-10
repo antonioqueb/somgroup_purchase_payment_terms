@@ -1,0 +1,44 @@
+// ─────────────────────────────────────────────────────────────────────
+// Calendario de Pagos SOMGROUP — botonera de la lista.
+// Odoo agrupa los botones adyacentes (Pagar / Ver Doc. / Ver Pagos) en
+// UNA sola celda; sin ancho garantizado se encimaban unos sobre otros.
+// Aquí la celda reserva su ancho natural y cada botón tiene su propio
+// espacio, sin forzar el contenido.
+// ─────────────────────────────────────────────────────────────────────
+
+.som_pay_sched {
+
+    // La celda de botones jamás se comprime: reserva el ancho de sus
+    // tres botones y la tabla scrollea si hace falta.
+    .o_data_cell.o_list_button,
+    .o_data_cell:has(> button.btn) {
+        white-space: nowrap !important;
+        min-width: max-content !important;
+        overflow: visible !important;
+        padding: 4px 8px !important;
+    }
+
+    .o_data_cell .btn {
+        display: inline-flex !important;
+        align-items: center;
+        gap: 4px;
+        margin: 1px 6px 1px 0 !important;
+        padding: 3px 12px !important;
+        border-radius: 8px !important;
+        font-size: 11.5px !important;
+        line-height: 1.3;
+        white-space: nowrap !important;
+        vertical-align: middle;
+        position: static !important;
+        float: none !important;
+
+        &:last-child { margin-right: 0 !important; }
+    }
+
+    // El bote de basura (quitar línea) con su propio aire
+    .o_list_record_remove {
+        padding: 4px 8px !important;
+
+        button { margin: 0 !important; }
+    }
+}

@@ -96,7 +96,7 @@
                         </span>
                     </div>
 
-                    <field name="payment_schedule_ids" nolabel="1">
+                    <field name="payment_schedule_ids" nolabel="1" class="som_pay_sched">
                         <list editable="bottom"
                               decoration-danger="state == 'overdue'"
                               decoration-success="state == 'paid'"
