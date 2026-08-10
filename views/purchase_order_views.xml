@@ -127,24 +127,30 @@
                             <field name="is_manual" widget="boolean" string="Manual"/>
                             <field name="note" string="Nota"/>
 
+                            <!-- Odoo FUSIONA botones adyacentes en una sola
+                                 columna (por eso se encimaban). Los campos
+                                 invisibles intercalados rompen la adyacencia:
+                                 cada botón queda en SU PROPIA columna. -->
                             <button name="action_register_payment"
                                     string="💵 Pagar"
                                     type="object"
                                     class="btn btn-sm btn-success"
                                     invisible="state == 'paid'"/>
 
+                            <field name="payment_ids" column_invisible="1"/>
+
                             <button name="action_view_schedule_invoice"
                                     string="📄 Ver Doc."
                                     type="object"
                                     class="btn btn-sm btn-info"/>
+
+                            <field name="partner_id" column_invisible="1"/>
 
                             <button name="action_view_payments"
                                     string="Ver Pagos"
                                     type="object"
                                     class="btn btn-sm btn-secondary"
                                     invisible="not payment_ids and not advance_payment_id"/>
-
-                            <field name="payment_ids" column_invisible="1"/>
                         </list>
                     </field>
 
