@@ -1,74 +1,73 @@
-<div style="margin: 0; padding: 22px 14px; background-color: #E2DED5; font-family: 'Anderson Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 720px; margin: 0 auto; background: #ffffff;">
+<div style="margin: 0; padding: 16px 8px; background-color: #E2DED5; font-family: 'Anderson Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background: #ffffff;">
         <tr><td style="height: 4px; background: #2C221B; font-size: 0; line-height: 0;">&#160;</td></tr>
         <!-- CABECERA -->
         <tr>
-            <td style="padding: 24px 44px 0;">
+            <td style="padding: 22px 28px 0;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                     <tr>
                         <td style="vertical-align: middle;">
                             <img t-att-src="object.get_base_url() + '/theme_list_modern/static/img/logosom.png'"
-                                 alt="SOM" style="height: 30px; width: auto; display: block;"/>
+                                 alt="SOM" style="height: 28px; width: auto; display: block;"/>
                         </td>
-                        <td style="vertical-align: middle; text-align: right; font-size: 10px; letter-spacing: .28em; text-transform: uppercase; color: #8A8072; white-space: nowrap;">
+                        <td style="vertical-align: middle; text-align: right; font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: #8A8072; white-space: nowrap;">
                             Purchase Order
                         </td>
                     </tr>
                 </table>
-                <div style="margin-top: 18px; border-top: 1px solid #2C221B;"></div>
+                <div style="margin-top: 16px; border-top: 1px solid #2C221B;"></div>
             </td>
         </tr>
-        <!-- TITULAR + TOTAL -->
+        <!-- TITULAR -->
         <tr>
-            <td style="padding: 20px 44px 0;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <td style="padding: 18px 28px 0;">
+                <div style="font-size: 24px; font-weight: 300; letter-spacing: .01em; color: #2C221B; line-height: 1.25;">
+                    Our order is confirmed.
+                </div>
+                <div style="font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #8A8072; margin-top: 8px; line-height: 1.7;">
+                    <t t-out="object.name or ''">P00015</t> &#183; <t t-out="format_date(object.date_order) or ''"/>
+                </div>
+            </td>
+        </tr>
+        <!-- TOTAL -->
+        <tr>
+            <td style="padding: 16px 28px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #ECE9E1;">
                     <tr>
-                        <td style="vertical-align: bottom;">
-                            <div style="font-size: 26px; font-weight: 300; letter-spacing: .01em; color: #2C221B; line-height: 1.25;">
-                                Our order is confirmed.
-                            </div>
-                            <div style="font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; margin-top: 8px;">
-                                <t t-out="object.name or ''">P00015</t> &#183; <t t-out="format_date(object.date_order) or ''"/>
-                            </div>
+                        <td style="padding: 14px 18px; vertical-align: middle; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #2C221B; font-weight: 700; white-space: nowrap;">
+                            Total &#183; <t t-out="object.currency_id.name or ''">USD</t>
                         </td>
-                        <td style="vertical-align: bottom; text-align: right;">
-                            <div style="font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #8A8072;">
-                                Total &#183; <t t-out="object.currency_id.name or ''">USD</t>
-                            </div>
-                            <div style="margin-top: 4px;">
-                                <span style="font-size: 26px; font-weight: 500; letter-spacing: .01em; color: #2C221B; white-space: nowrap;"
-                                      t-out="format_amount(object.amount_total, object.currency_id) or ''">$ 10.00</span>
-                                <span style="font-size: 12px; font-weight: 700; letter-spacing: .08em; color: #8A8072;">&#160;<t t-out="object.currency_id.name or ''">USD</t></span>
-                            </div>
+                        <td style="padding: 14px 18px; vertical-align: middle; text-align: right;">
+                            <span style="font-size: 22px; font-weight: 500; letter-spacing: .01em; color: #2C221B; white-space: nowrap;"
+                                  t-out="format_amount(object.amount_total, object.currency_id) or ''">$ 10.00</span>
+                            <span style="font-size: 11px; font-weight: 700; letter-spacing: .06em; color: #8A8072;">&#160;<t t-out="object.currency_id.name or ''">USD</t></span>
                         </td>
                     </tr>
                 </table>
             </td>
         </tr>
-        <!-- FRANJA DE DATOS -->
+        <!-- DATOS -->
         <tr>
-            <td style="padding: 18px 44px 0;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #ECE9E1;">
+            <td style="padding: 8px 28px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                    <tr t-if="object.date_planned">
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Expected receipt</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="format_date(object.date_planned) or ''"/></td>
+                    </tr>
+                    <tr t-if="object.user_id">
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Purchasing contact</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.user_id.name or ''">Buyer</t></td>
+                    </tr>
                     <tr>
-                        <td t-if="object.date_planned" style="padding: 14px 22px 16px 28px; vertical-align: top; width: 33%;">
-                            <div style="font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #8A8072;">Expected receipt</div>
-                            <div style="font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .02em; margin-top: 5px;"><t t-out="format_date(object.date_planned) or ''"/></div>
-                        </td>
-                        <td t-if="object.user_id" style="padding: 14px 22px 16px; border-left: 1px solid #D8D2C6; vertical-align: top; width: 33%;">
-                            <div style="font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #8A8072;">Purchasing contact</div>
-                            <div style="font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .02em; margin-top: 5px;"><t t-out="object.user_id.name or ''">Buyer</t></div>
-                        </td>
-                        <td style="padding: 14px 22px 16px; border-left: 1px solid #D8D2C6; vertical-align: top; width: 33%;">
-                            <div style="font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #8A8072;">Supplier</div>
-                            <div style="font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .02em; margin-top: 5px;"><t t-out="object.partner_id.name or ''"/></div>
-                        </td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Supplier</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.partner_id.name or ''"/></td>
                     </tr>
                 </table>
             </td>
         </tr>
         <!-- CUERPO -->
         <tr>
-            <td style="padding: 18px 44px 0; font-size: 13.5px; color: #3D352C; line-height: 1.65;">
+            <td style="padding: 18px 28px 0; font-size: 14px; color: #3D352C; line-height: 1.7;">
                 <p style="margin: 0;">
                     Dear <t t-out="object.partner_id.name or ''">Supplier</t>,
                     we are pleased to confirm our purchase order, enclosed with
@@ -77,43 +76,37 @@
                 </p>
             </td>
         </tr>
-        <!-- CONFIRMAR RECEPCIÓN -->
+        <!-- ACCIÓN -->
         <tr>
-            <td style="padding: 18px 44px 0;">
+            <td style="padding: 18px 28px 0;">
                 <a t-att-href="object.get_acknowledge_url()" target="_blank"
-                   style="display: inline-block; padding: 12px 30px; background: #2C221B; color: #E2DED5; text-decoration: none; font-size: 10px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase;">
+                   style="display: block; padding: 14px 10px; background: #2C221B; color: #E2DED5; text-decoration: none; font-size: 11px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; text-align: center;">
                     Acknowledge receipt</a>
             </td>
         </tr>
         <!-- CIERRE -->
         <tr>
-            <td style="padding: 16px 44px 26px;">
-                <div style="font-size: 13px; font-style: italic; color: #2C221B; line-height: 1.6;">
+            <td style="padding: 18px 28px 24px;">
+                <div style="font-size: 13px; font-style: italic; color: #2C221B; line-height: 1.65;">
                     Thank you for your continued partnership. For any question regarding this order, simply reply to this email.
                 </div>
-                <div style="margin-top: 14px; font-size: 13px; color: #3D352C;">
-                    Sincerely,&#160;
-                    <span style="font-weight: 600; color: #2C221B;" t-out="object.user_id.name or object.company_id.name or ''">Advisor</span>
-                    <span style="font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072;">&#160;&#183;&#160;<t t-out="object.company_id.name or ''">SOM Group</t></span>
+                <div style="margin-top: 14px; font-size: 13px; color: #3D352C; line-height: 1.7;">
+                    Sincerely,<br/>
+                    <span style="font-weight: 600; color: #2C221B;" t-out="object.user_id.name or object.company_id.name or ''">Advisor</span><br/>
+                    <span style="font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072;"><t t-out="object.company_id.name or ''">SOM Group</t></span>
                 </div>
             </td>
         </tr>
         <!-- PIE -->
         <tr>
-            <td style="padding: 16px 44px; background: #2C221B;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                    <tr>
-                        <td style="vertical-align: middle; white-space: nowrap;">
-                            <span style="font-size: 12px; letter-spacing: .3em; color: #E2DED5;">(SOM)</span><span style="font-size: 8px; vertical-align: super; color: #E2DED5;">&#174;</span>
-                            <span style="font-size: 8px; letter-spacing: .26em; text-transform: uppercase; color: #A79C8C; font-style: italic;">&#160;&#160;Recubrimientos &#218;nicos</span>
-                        </td>
-                        <td style="vertical-align: middle; text-align: right; font-size: 8px; letter-spacing: .16em; text-transform: uppercase; color: #A79C8C; line-height: 1.9;">
-                            <span t-out="object.company_id.name or 'SOM Group'">SOM Group</span>
-                            <t t-if="object.company_id.phone"> &#183; <span t-out="object.company_id.phone"/></t>
-                            <t t-if="object.company_id.email"> &#183; <span t-out="object.company_id.email"/></t>
-                        </td>
-                    </tr>
-                </table>
+            <td style="padding: 20px 28px; background: #2C221B; text-align: center;">
+                <div style="font-size: 13px; letter-spacing: .3em; color: #E2DED5;">(SOM)<span style="font-size: 8px; vertical-align: super;">&#174;</span></div>
+                <div style="font-size: 8px; letter-spacing: .26em; text-transform: uppercase; color: #A79C8C; font-style: italic; margin-top: 5px;">Recubrimientos &#218;nicos</div>
+                <div style="font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #A79C8C; margin-top: 12px; line-height: 1.9;">
+                    <span t-out="object.company_id.name or 'SOM Group'">SOM Group</span>
+                    <t t-if="object.company_id.phone"><br/><span t-out="object.company_id.phone"/></t>
+                    <t t-if="object.company_id.email"><br/><span t-out="object.company_id.email"/></t>
+                </div>
             </td>
         </tr>
     </table>
