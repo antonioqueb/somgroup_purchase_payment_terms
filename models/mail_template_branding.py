@@ -39,9 +39,16 @@ class MailTemplate(models.Model):
             except Exception:
                 _logger.exception('[SOM MAIL] Sin cuerpo para %s.', xmlid)
                 continue
-            template.sudo().write({
-                'subject': spec['subject'],
-                'body_html': body,
-            })
-            _logger.info('[SOM MAIL] Branding aplicado a %s.', xmlid)
+            # body_html y subject son traducibles: si solo se escribe el
+            # idioma base, los partners en español siguen recibiendo la
+            # traducción nativa fea. Se escribe en TODOS los idiomas.
+            langs = self.env['res.lang'].search([]).mapped('code')
+            for lang in langs:
+                template.sudo().with_context(lang=lang).write({
+                    'subject': spec['subject'],
+                    'body_html': body,
+                })
+            _logger.info(
+                '[SOM MAIL] Branding aplicado a %s (%s).',
+                xmlid, ', '.join(langs))
         return True
