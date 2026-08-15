@@ -12,13 +12,13 @@ _TEMPLATES = {
     'purchase.email_template_edi_purchase': {
         'file': 'somgroup_purchase_payment_terms/data/mail_bodies/rfq.html',
         'subject': (
-            "Solicitud de cotización {{ object.name or '' }}"),
+            "Request for quotation {{ object.name or '' }}"),
     },
     'purchase.email_template_edi_purchase_done': {
         'file': ('somgroup_purchase_payment_terms/data/mail_bodies/'
                  'po_confirmed.html'),
         'subject': (
-            "Orden de compra {{ object.name or '' }} confirmada"),
+            "Purchase order {{ object.name or '' }} confirmed"),
     },
 }
 

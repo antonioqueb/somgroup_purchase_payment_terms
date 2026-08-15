@@ -11,7 +11,7 @@
                                  alt="SOM" style="height: 28px; width: auto; display: block;"/>
                         </td>
                         <td style="vertical-align: middle; text-align: right; font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: #8A8072; white-space: nowrap;">
-                            Solicitud de cotizaci&#243;n
+                            Request for Quotation
                         </td>
                     </tr>
                 </table>
@@ -22,7 +22,7 @@
         <tr>
             <td style="padding: 18px 28px 0;">
                 <div style="font-size: 24px; font-weight: 300; letter-spacing: .01em; color: #2C221B; line-height: 1.25;">
-                    Esperamos su mejor propuesta.
+                    We invite your best offer.
                 </div>
                 <div style="font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #8A8072; margin-top: 8px; line-height: 1.7;">
                     <t t-out="object.name or ''">P00015</t> &#183; <t t-out="format_date(object.date_order) or ''"/>
@@ -34,15 +34,15 @@
             <td style="padding: 8px 28px 0;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                     <tr t-if="object.date_planned">
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Recepci&#243;n esperada</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Expected receipt</td>
                         <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="format_date(object.date_planned) or ''"/></td>
                     </tr>
                     <tr t-if="object.user_id">
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Contacto de compras</td>
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.user_id.name or ''">Comprador</t></td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Purchasing contact</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.user_id.name or ''">Buyer</t></td>
                     </tr>
                     <tr>
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Proveedor</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Supplier</td>
                         <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.partner_id.name or ''"/></td>
                     </tr>
                 </table>
@@ -52,11 +52,10 @@
         <tr>
             <td style="padding: 18px 28px 0; font-size: 14px; color: #3D352C; line-height: 1.7;">
                 <p style="margin: 0;">
-                    Estimado proveedor <t t-out="object.partner_id.name or ''"/>,
-                    le invitamos a presentar su mejor propuesta para los
-                    materiales detallados en la solicitud de cotizaci&#243;n
-                    adjunta, incluyendo precios, disponibilidad y tiempos de
-                    entrega estimados.
+                    Dear <t t-out="object.partner_id.name or ''">Supplier</t>,
+                    we kindly invite you to submit your best offer for the
+                    materials detailed in the enclosed request for quotation,
+                    including pricing, availability and estimated lead times.
                 </p>
             </td>
         </tr>
@@ -64,11 +63,11 @@
         <tr>
             <td style="padding: 18px 28px 24px;">
                 <div style="font-size: 13px; font-style: italic; color: #2C221B; line-height: 1.65;">
-                    Si alguna especificaci&#243;n requiere aclaraci&#243;n, responda este correo &#8212; quedamos atentos a su propuesta.
+                    Should any specification require clarification, please reply to this email &#8212; we look forward to your proposal.
                 </div>
                 <div style="margin-top: 14px; font-size: 13px; color: #3D352C; line-height: 1.7;">
-                    Atentamente,<br/>
-                    <span style="font-weight: 600; color: #2C221B;" t-out="object.user_id.name or object.company_id.name or ''">Asesor</span><br/>
+                    Sincerely,<br/>
+                    <span style="font-weight: 600; color: #2C221B;" t-out="object.user_id.name or object.company_id.name or ''">Buyer</span><br/>
                     <span style="font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072;"><t t-out="object.company_id.name or ''">SOM Group</t></span>
                 </div>
             </td>

@@ -11,7 +11,7 @@
                                  alt="SOM" style="height: 28px; width: auto; display: block;"/>
                         </td>
                         <td style="vertical-align: middle; text-align: right; font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: #8A8072; white-space: nowrap;">
-                            Orden de compra
+                            Purchase Order
                         </td>
                     </tr>
                 </table>
@@ -22,7 +22,7 @@
         <tr>
             <td style="padding: 18px 28px 0;">
                 <div style="font-size: 24px; font-weight: 300; letter-spacing: .01em; color: #2C221B; line-height: 1.25;">
-                    Nuestra orden est&#225; confirmada.
+                    Our order is confirmed.
                 </div>
                 <div style="font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #8A8072; margin-top: 8px; line-height: 1.7;">
                     <t t-out="object.name or ''">P00015</t> &#183; <t t-out="format_date(object.date_order) or ''"/>
@@ -51,15 +51,15 @@
             <td style="padding: 8px 28px 0;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                     <tr t-if="object.date_planned">
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Recepci&#243;n esperada</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Expected receipt</td>
                         <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="format_date(object.date_planned) or ''"/></td>
                     </tr>
                     <tr t-if="object.user_id">
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Contacto de compras</td>
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.user_id.name or ''">Comprador</t></td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Purchasing contact</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.user_id.name or ''">Buyer</t></td>
                     </tr>
                     <tr>
-                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Proveedor</td>
+                        <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072; white-space: nowrap; vertical-align: middle;">Supplier</td>
                         <td style="padding: 9px 0; border-bottom: 1px solid #D8D2C6; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .01em; vertical-align: middle;"><t t-out="object.partner_id.name or ''"/></td>
                     </tr>
                 </table>
@@ -69,10 +69,10 @@
         <tr>
             <td style="padding: 18px 28px 0; font-size: 14px; color: #3D352C; line-height: 1.7;">
                 <p style="margin: 0;">
-                    Estimado proveedor <t t-out="object.partner_id.name or ''"/>,
-                    nos complace confirmar nuestra orden de compra, adjunta
-                    en este correo. Le agradeceremos acusar recibo y
-                    confirmar el calendario de entrega a la brevedad.
+                    Dear <t t-out="object.partner_id.name or ''">Supplier</t>,
+                    we are pleased to confirm our purchase order, enclosed with
+                    this email. Kindly acknowledge receipt and confirm the
+                    delivery schedule at your earliest convenience.
                 </p>
             </td>
         </tr>
@@ -81,18 +81,18 @@
             <td style="padding: 18px 28px 0;">
                 <a t-att-href="object.get_acknowledge_url()" target="_blank"
                    style="display: block; padding: 14px 10px; background: #2C221B; color: #E2DED5; text-decoration: none; font-size: 11px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; text-align: center;">
-                    Confirmar recepci&#243;n</a>
+                    Acknowledge receipt</a>
             </td>
         </tr>
         <!-- CIERRE -->
         <tr>
             <td style="padding: 18px 28px 24px;">
                 <div style="font-size: 13px; font-style: italic; color: #2C221B; line-height: 1.65;">
-                    Gracias por su alianza continua. Para cualquier duda sobre esta orden, basta responder este correo.
+                    Thank you for your continued partnership. For any question regarding this order, simply reply to this email.
                 </div>
                 <div style="margin-top: 14px; font-size: 13px; color: #3D352C; line-height: 1.7;">
-                    Atentamente,<br/>
-                    <span style="font-weight: 600; color: #2C221B;" t-out="object.user_id.name or object.company_id.name or ''">Asesor</span><br/>
+                    Sincerely,<br/>
+                    <span style="font-weight: 600; color: #2C221B;" t-out="object.user_id.name or object.company_id.name or ''">Buyer</span><br/>
                     <span style="font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #8A8072;"><t t-out="object.company_id.name or ''">SOM Group</t></span>
                 </div>
             </td>
