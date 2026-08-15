@@ -13,14 +13,14 @@ _TEMPLATES = {
         'file': 'somgroup_purchase_payment_terms/data/mail_bodies/rfq.html',
         'subject': (
             "Request for Quotation {{ object.name or 'n/a' }} — "
-            'SOM Sophisticated Materials'),
+            '(SOM)'),
     },
     'purchase.email_template_edi_purchase_done': {
         'file': ('somgroup_purchase_payment_terms/data/mail_bodies/'
                  'po_confirmed.html'),
         'subject': (
             "Purchase Order {{ object.name or 'n/a' }} — "
-            'SOM Sophisticated Materials'),
+            '(SOM)'),
     },
 }
 

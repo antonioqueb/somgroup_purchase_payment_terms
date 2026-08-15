@@ -1,39 +1,44 @@
-<div style="margin: 0; padding: 32px 12px; background-color: #f5f5f4; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e5e3;">
-        <!-- MEMBRETE -->
+<div style="margin: 0; padding: 40px 14px; background-color: #E2DED5; font-family: 'Anderson Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 620px; margin: 0 auto; background: #ffffff;">
+        <tr><td style="height: 4px; background: #2C221B; font-size: 0; line-height: 0;">&#160;</td></tr>
+        <!-- CABECERA -->
         <tr>
-            <td style="padding: 36px 48px 24px; text-align: center;">
-                <img t-att-src="object.get_base_url() + '/theme_list_modern/static/img/logosom.png'"
-                     alt="SOM Sophisticated Materials" style="height: 40px; width: auto;"/>
-                <div style="margin-top: 20px; border-top: 1px solid #000000;"></div>
-                <div style="margin-top: 2px; border-top: 1px solid #000000;"></div>
+            <td style="padding: 36px 48px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="vertical-align: middle;">
+                            <img t-att-src="object.get_base_url() + '/theme_list_modern/static/img/logosom.png'"
+                                 alt="(SOM)" style="height: 34px; width: auto; display: block;"/>
+                        </td>
+                        <td style="vertical-align: middle; text-align: right; font-size: 10px; letter-spacing: .28em; text-transform: uppercase; color: #8A8072; white-space: nowrap;">
+                            ( Request for Quotation )
+                        </td>
+                    </tr>
+                </table>
+                <div style="margin-top: 26px; border-top: 1px solid #2C221B;"></div>
             </td>
         </tr>
-        <!-- META DEL DOCUMENTO -->
+        <!-- FOLIO -->
         <tr>
-            <td style="padding: 8px 48px 0; text-align: center;">
-                <div style="font-size: 11px; letter-spacing: .22em; color: #737373; text-transform: uppercase;">
-                    Request for quotation
-                </div>
-                <div style="font-family: Georgia, 'Times New Roman', serif; font-size: 30px; color: #000000; margin-top: 10px; letter-spacing: .01em;">
+            <td style="padding: 30px 48px 0;">
+                <div style="font-size: 34px; font-weight: 300; letter-spacing: .04em; color: #2C221B;">
                     <t t-out="object.name or ''">P00015</t>
                 </div>
-                <div style="font-size: 12px; color: #737373; margin-top: 6px; letter-spacing: .06em;">
+                <div style="font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: #8A8072; margin-top: 8px;">
                     <t t-out="format_date(object.date_order) or ''"/>
                 </div>
             </td>
         </tr>
         <!-- CUERPO -->
         <tr>
-            <td style="padding: 28px 48px 0; font-size: 14px; color: #262626; line-height: 1.75;">
+            <td style="padding: 26px 48px 0; font-size: 14px; color: #3D352C; line-height: 1.85;">
                 <p style="margin: 0 0 14px;">
                     Dear <t t-out="object.partner_id.name or ''">Supplier</t>,
                 </p>
                 <p style="margin: 0 0 14px;">
                     We kindly invite you to submit your best offer for the
-                    materials detailed in the enclosed request for quotation.
-                    Please include your pricing, availability and estimated
-                    lead times.
+                    materials detailed in the enclosed request for quotation,
+                    including pricing, availability and estimated lead times.
                 </p>
                 <t t-if="object.date_planned">
                     <p style="margin: 0 0 14px;">
@@ -45,44 +50,51 @@
         </tr>
         <!-- RESUMEN -->
         <tr>
-            <td style="padding: 12px 48px 0;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; color: #262626; border-top: 1px solid #000000;">
+            <td style="padding: 24px 48px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #ECE9E1; border-collapse: separate;">
+                    <tr><td colspan="2" style="height: 10px; font-size: 0;">&#160;</td></tr>
+                </table>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #ECE9E1; padding: 0;">
                     <tr>
-                        <td style="padding: 12px 0 4px; color: #737373; letter-spacing: .08em; text-transform: uppercase; font-size: 11px;">Reference</td>
-                        <td style="padding: 12px 0 4px; text-align: right; font-weight: 600;" t-out="object.name or ''">P00015</td>
+                        <td style="padding: 6px 28px 20px;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="padding: 14px 0 5px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #8A8072; white-space: nowrap;">( Reference )</td>
+                        <td style="padding: 14px 0 5px; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .02em;"><t t-out="object.name or ''">P00015</t></td>
                     </tr>
                     <tr t-if="object.user_id">
-                        <td style="padding: 4px 0 16px; color: #737373; letter-spacing: .08em; text-transform: uppercase; font-size: 11px;">Purchasing contact</td>
-                        <td style="padding: 4px 0 16px; text-align: right; font-weight: 600;" t-out="object.user_id.name or ''">Buyer</td>
+                        <td style="padding: 5px 0; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #8A8072; white-space: nowrap;">( Purchasing contact )</td>
+                        <td style="padding: 5px 0; text-align: right; font-size: 13px; font-weight: 600; color: #2C221B; letter-spacing: .02em;"><t t-out="object.user_id.name or ''">Buyer</t></td>
+                    </tr>
+
+                            </table>
+                        </td>
                     </tr>
                 </table>
-                <div style="border-top: 1px solid #000000;"></div>
             </td>
         </tr>
         <!-- CIERRE -->
         <tr>
-            <td style="padding: 18px 48px 36px; font-size: 14px; color: #262626; line-height: 1.75;">
-                <p style="margin: 0 0 18px;">
-                    Should any specification require clarification, please do
-                    not hesitate to reply to this email. We look forward to
-                    your proposal.
+            <td style="padding: 20px 48px 40px; font-size: 14px; color: #3D352C; line-height: 1.85;">
+                <p style="margin: 0 0 22px; font-style: italic; color: #2C221B;">
+                    Should any specification require clarification, please reply to this email &#8212; we look forward to your proposal.
                 </p>
-                <p style="margin: 0;">
-                    Sincerely,
-                </p>
+                <p style="margin: 0; font-size: 13px;">Sincerely,</p>
                 <p style="margin: 14px 0 0;">
-                    <span style="font-family: Georgia, 'Times New Roman', serif; font-size: 15px; color: #000000;" t-out="object.user_id.name or object.company_id.name or ''">Buyer</span><br/>
-                    <span style="font-size: 12px; color: #737373; letter-spacing: .04em;" t-out="object.company_id.name or ''">SOM Group</span>
+                    <span style="font-size: 15px; font-weight: 600; letter-spacing: .02em; color: #2C221B;" t-out="object.user_id.name or object.company_id.name or ''">Advisor</span><br/>
+                    <span style="font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: #8A8072;" t-out="object.company_id.name or ''">SOM Group</span>
                 </p>
             </td>
         </tr>
         <!-- PIE -->
         <tr>
-            <td style="padding: 18px 48px; background: #000000; text-align: center;">
-                <div style="font-size: 10px; color: #a3a3a3; letter-spacing: .18em; text-transform: uppercase; line-height: 1.9;">
+            <td style="padding: 26px 48px; background: #2C221B;">
+                <div style="font-size: 13px; letter-spacing: .3em; color: #E2DED5;">(SOM)<span style="font-size: 9px; vertical-align: super;">&#174;</span></div>
+                <div style="font-size: 9px; letter-spacing: .3em; text-transform: uppercase; color: #A79C8C; margin-top: 6px; font-style: italic;">Recubrimientos &#218;nicos</div>
+                <div style="font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: #A79C8C; margin-top: 14px; line-height: 2;">
                     <span t-out="object.company_id.name or 'SOM Group'">SOM Group</span>
                     <t t-if="object.company_id.phone"><br/><span t-out="object.company_id.phone"/></t>
-                    <t t-if="object.company_id.email"> · <span t-out="object.company_id.email"/></t>
+                    <t t-if="object.company_id.email"> &#183; <span t-out="object.company_id.email"/></t>
                 </div>
             </td>
         </tr>
