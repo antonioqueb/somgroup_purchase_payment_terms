@@ -19,6 +19,15 @@
                 <attribute name="domain">[('som_usage', 'in', ('both', 'purchase')), '|', ('somgroup_scope', '=', 'both'), ('somgroup_scope', '=', purchase_payment_scope)]</attribute>
             </xpath>
 
+            <!-- La DIVISA se puede corregir aunque la OC esté confirmada:
+                 una orden capturada con divisa equivocada quedaba atrapada
+                 (core la vuelve readonly tras confirmar). Solo cancelada
+                 queda bloqueada. Xpath sin posicional y excluyendo las
+                 currency_id anidadas en x2many (regla de builds Enterprise). -->
+            <xpath expr="//field[@name='currency_id'][not(ancestor::field)]" position="attributes">
+                <attribute name="readonly">state == 'cancel'</attribute>
+            </xpath>
+
             <xpath expr="//field[@name='payment_term_id']/.." position="after">
 
                 <div class="alert alert-warning mb-3"

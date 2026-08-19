@@ -27,6 +27,23 @@ class PurchaseOrder(models.Model):
         default=False,
     )
 
+    @api.onchange('purchase_payment_scope')
+    def _onchange_purchase_payment_scope_currency(self):
+        """Divisa según el tipo de compra: Importación → USD, Nacional →
+        MXN. Es solo PRE-CARGA: el usuario puede cambiar la divisa después
+        si el caso lo amerita."""
+        for order in self:
+            if not order.purchase_payment_scope:
+                continue
+            xmlid = (
+                'base.USD' if order.purchase_payment_scope == 'import'
+                else 'base.MXN'
+            )
+            currency = self.env.ref(xmlid, raise_if_not_found=False)
+            if currency and currency.active \
+                    and order.currency_id != currency:
+                order.currency_id = currency
+
     is_national_order = fields.Boolean(
         string='Es Compra Nacional',
         compute='_compute_is_national_order',
