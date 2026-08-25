@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- COMPRADORES CREAN PROVEEDORES: el core gatea la creación de
+         res.partner tras el permiso "Creación de contactos"
+         (base.group_partner_manager). Los grupos de VENTA ya lo implican,
+         pero Compras/Usuario no: un comprador puro no podía dar de alta
+         proveedores (AccessError 'Contact/Creation') y acababa pidiendo
+         permisos que no le tocan. (4, ref): SUMA la implicación sin
+         quitar nada. -->
+    <record id="purchase.group_purchase_user" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('base.group_partner_manager'))]"/>
+    </record>
+</odoo>
