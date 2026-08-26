@@ -37,6 +37,12 @@
                     <field name="payment_schedule_warning" readonly="1" nolabel="1"/>
                 </div>
 
+                <div class="mb-2" invisible="purchase_payment_scope != 'import'">
+                    <span class="badge rounded-pill text-bg-warning me-1"
+                          invisible="not requires_bl_date or bl_date">Fecha BL pendiente</span>
+                    <span class="badge rounded-pill text-bg-warning"
+                          invisible="not requires_eta or eta_date">ETA pendiente</span>
+                </div>
                 <group string="📦 Datos de Embarque — Importación"
                        invisible="purchase_payment_scope != 'import'"
                        col="2">

@@ -356,13 +356,10 @@ class PurchaseOrder(models.Model):
             scope = rec.purchase_payment_scope or ('import' if rec.is_import_order else 'national')
 
             if term and term_type != 'standard':
-                if scope == 'import':
-                    if rec.requires_bl_date and not rec.bl_date:
-                        warnings.append('⚠ Ingrese Fecha BL para calcular vencimientos automáticamente.')
-                    if rec.requires_eta and not rec.eta_date:
-                        warnings.append('⚠ Ingrese ETA para programar pagos contra entrega / Telex Release.')
-
-                elif scope == 'national':
+                # ETA / Fecha BL faltantes NO generan alerta aunque el término
+                # los use: se señalan con un tag discreto en el formulario
+                # ("ETA pendiente" / "Fecha BL pendiente").
+                if scope == 'national':
                     if term_type in ['national_days_after_base', 'national_advance_balance']:
                         base = rec.national_due_base or term.national_due_base or 'supplier_invoice_date'
                         missing_label = rec._get_missing_national_base_label(base)
@@ -452,24 +449,8 @@ class PurchaseOrder(models.Model):
         term_type = self.payment_term_id.somgroup_term_type
         scope = self.purchase_payment_scope or ('import' if self.is_import_order else 'national')
 
-        if scope == 'import':
-            if term_type in ['days_after_bl'] and not self.bl_date:
-                return {
-                    'warning': {
-                        'title': _('Fecha BL requerida'),
-                        'message': _('El término "%s" requiere Fecha BL.') % self.payment_term_id.name,
-                    }
-                }
-
-            if term_type in ['against_delivery', 'advance_balance', 'advance_days_arrival'] and not self.eta_date:
-                return {
-                    'warning': {
-                        'title': _('ETA recomendada'),
-                        'message': _(
-                            'El término "%s" usa ETA para programar pagos contra entrega / Telex Release.'
-                        ) % self.payment_term_id.name,
-                    }
-                }
+        # ETA / Fecha BL faltantes: sin popup — el formulario muestra un tag
+        # "pendiente" y el calendario se recalcula cuando se capturen.
 
         if scope == 'national':
             if term_type in ['national_days_after_base', 'national_advance_balance']:
