@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare
 import logging
 
@@ -27,22 +27,115 @@ class PurchaseOrder(models.Model):
         default=False,
     )
 
+    # ── Divisa gobernada por el tipo de compra ─────────────────────────
+    # Nacional → SOLO la moneda de la compañía (MXN). Importación → SOLO
+    # divisas extranjeras activas (USD, EUR…), USD por defecto. El selector
+    # se acota por dominio, el cambio de tipo/proveedor la fuerza y el
+    # servidor la valida (RPC/importaciones incluidas).
+    som_allowed_currency_ids = fields.Many2many(
+        'res.currency', compute='_compute_som_allowed_currency_ids',
+        string='Divisas Permitidas')
+
+    @api.depends('purchase_payment_scope', 'company_id')
+    def _compute_som_allowed_currency_ids(self):
+        Currency = self.env['res.currency']
+        for order in self:
+            order.som_allowed_currency_ids = order._som_allowed_currencies()
+
+    def _som_allowed_currencies(self):
+        self.ensure_one()
+        company_cur = (self.company_id or self.env.company).currency_id
+        if self.purchase_payment_scope == 'import':
+            return self.env['res.currency'].search([
+                ('active', '=', True), ('id', '!=', company_cur.id)])
+        return company_cur
+
+    def _som_default_currency(self):
+        """Importación → USD (si está activa; si no, la primera extranjera).
+        Nacional → moneda de la compañía."""
+        self.ensure_one()
+        allowed = self._som_allowed_currencies()
+        if self.purchase_payment_scope == 'import':
+            usd = self.env.ref('base.USD', raise_if_not_found=False)
+            if usd and usd in allowed:
+                return usd
+        return allowed[:1]
+
+    def _som_enforce_currency(self):
+        """Si la divisa actual no está permitida para el tipo, se sustituye
+        por la default del tipo. Devuelve True si cambió."""
+        self.ensure_one()
+        if not self.purchase_payment_scope:
+            return False
+        allowed = self._som_allowed_currencies()
+        if self.currency_id and self.currency_id in allowed:
+            return False
+        default = self._som_default_currency()
+        if default:
+            self.currency_id = default
+            return True
+        return False
+
     @api.onchange('purchase_payment_scope')
     def _onchange_purchase_payment_scope_currency(self):
-        """Divisa según el tipo de compra: Importación → USD, Nacional →
-        MXN. Es solo PRE-CARGA: el usuario puede cambiar la divisa después
-        si el caso lo amerita."""
+        """Al cambiar el tipo, la divisa se fuerza a la default del tipo
+        (Importación → USD, Nacional → MXN)."""
         for order in self:
             if not order.purchase_payment_scope:
                 continue
-            xmlid = (
-                'base.USD' if order.purchase_payment_scope == 'import'
-                else 'base.MXN'
-            )
-            currency = self.env.ref(xmlid, raise_if_not_found=False)
-            if currency and currency.active \
-                    and order.currency_id != currency:
-                order.currency_id = currency
+            default = order._som_default_currency()
+            if default and order.currency_id != default:
+                order.currency_id = default
+
+    @api.onchange('partner_id')
+    def _onchange_partner_id_som_currency(self):
+        """El core pone la divisa del proveedor al elegirlo; aquí manda el
+        tipo de compra: si esa divisa no aplica, se corrige."""
+        for order in self:
+            order._som_enforce_currency()
+
+    @api.onchange('currency_id')
+    def _onchange_currency_id_som_scope(self):
+        for order in self:
+            if order.purchase_payment_scope and order.currency_id \
+                    and order.currency_id not in order._som_allowed_currencies():
+                scope = dict(order._fields['purchase_payment_scope'].selection)[order.purchase_payment_scope]
+                order._som_enforce_currency()
+                return {'warning': {
+                    'title': _('Divisa no permitida'),
+                    'message': _('Una compra %s no puede llevar esa divisa. '
+                                 'Se restableció a %s.') % (scope, order.currency_id.name),
+                }}
+
+    @api.constrains('currency_id', 'purchase_payment_scope', 'is_import_order')
+    def _check_som_currency_scope(self):
+        for order in self:
+            if order.state == 'cancel' or not order.purchase_payment_scope or not order.currency_id:
+                continue
+            if order.currency_id not in order._som_allowed_currencies():
+                if order.purchase_payment_scope == 'import':
+                    raise ValidationError(_(
+                        "Compra de IMPORTACIÓN: la divisa debe ser extranjera (USD, EUR…), no %s.")
+                        % order.currency_id.name)
+                raise ValidationError(_(
+                    "Compra NACIONAL: la divisa debe ser %s, no %s.")
+                    % ((order.company_id or self.env.company).currency_id.name, order.currency_id.name))
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Creación por código (proformas, restock, tarifario): si no viene
+        tipo de compra explícito, se infiere de la divisa para no romper
+        esos flujos; si viene explícito, manda el tipo."""
+        Currency = self.env['res.currency']
+        for vals in vals_list:
+            explicit = 'purchase_payment_scope' in vals or 'is_import_order' in vals
+            if explicit or not vals.get('currency_id'):
+                continue
+            company = self.env['res.company'].browse(vals.get('company_id')) if vals.get('company_id') else self.env.company
+            if Currency.browse(vals['currency_id']) != company.currency_id:
+                vals['is_import_order'] = True
+                vals['purchase_payment_scope'] = 'import'
+        return super().create(vals_list)
 
     is_national_order = fields.Boolean(
         string='Es Compra Nacional',

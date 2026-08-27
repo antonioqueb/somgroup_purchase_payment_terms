@@ -13,6 +13,7 @@
                        string="Tipo de Compra"/>
                 <field name="is_import_order" invisible="1"/>
                 <field name="is_national_order" invisible="1"/>
+                <field name="som_allowed_currency_ids" invisible="1"/>
             </xpath>
 
             <xpath expr="//field[@name='payment_term_id']" position="attributes">
@@ -26,6 +27,9 @@
                  currency_id anidadas en x2many (regla de builds Enterprise). -->
             <xpath expr="//field[@name='currency_id'][not(ancestor::field)]" position="attributes">
                 <attribute name="readonly">state == 'cancel'</attribute>
+                <!-- Nacional → solo MXN · Importación → solo divisas extranjeras -->
+                <attribute name="domain">[('id', 'in', som_allowed_currency_ids)]</attribute>
+                <attribute name="options">{'no_create': True, 'no_open': True}</attribute>
             </xpath>
 
             <xpath expr="//field[@name='payment_term_id']/.." position="after">
