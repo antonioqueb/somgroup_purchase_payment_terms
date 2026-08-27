@@ -121,8 +121,8 @@ class PurchaseOrder(models.Model):
                     "Compra NACIONAL: la divisa debe ser %s, no %s.")
                     % ((order.company_id or self.env.company).currency_id.name, order.currency_id.name))
 
-    @api.model_create_multi
-    def create(self, vals_list):
+    @api.model
+    def _som_infer_scope_from_currency(self, vals_list):
         """Creación por código (proformas, restock, tarifario): si no viene
         tipo de compra explícito, se infiere de la divisa para no romper
         esos flujos; si viene explícito, manda el tipo."""
@@ -135,7 +135,7 @@ class PurchaseOrder(models.Model):
             if Currency.browse(vals['currency_id']) != company.currency_id:
                 vals['is_import_order'] = True
                 vals['purchase_payment_scope'] = 'import'
-        return super().create(vals_list)
+        return vals_list
 
     is_national_order = fields.Boolean(
         string='Es Compra Nacional',
@@ -647,8 +647,9 @@ class PurchaseOrder(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        vals_list = self._som_infer_scope_from_currency(vals_list)
         records = super(PurchaseOrder, self).create(vals_list)
-        
+
         # SINCRONIZACIÓN AUTOMÁTICA AL CREAR
         if not self.env.context.get('skip_date_sync'):
             for record in records:
