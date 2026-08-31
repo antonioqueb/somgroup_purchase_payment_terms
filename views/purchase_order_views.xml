@@ -245,6 +245,7 @@
                     <separator string="Datos del Pago"/>
                     <group col="2">
                         <group string="¿Qué se paga?">
+                            <field name="company_id" groups="base.group_multi_company" readonly="1"/>
                             <field name="purchase_payment_scope" string="Tipo Compra" readonly="1"/>
                             <field name="partner_id" string="Proveedor" readonly="1"/>
                             <field name="payment_type" string="Tipo de Pago"/>
@@ -321,6 +322,7 @@
 
                 <field name="purchase_payment_scope" string="Tipo Compra"/>
                 <field name="order_id" string="Orden de Compra"/>
+                <field name="company_id" optional="hide" groups="base.group_multi_company"/>
                 <field name="partner_id" string="Proveedor"/>
                 <field name="payment_type" string="Tipo"/>
                 <field name="percent" string="%"/>
@@ -472,6 +474,11 @@
                 <filter string="Por Mes"
                         name="group_month"
                         context="{'group_by': 'due_date:month'}"/>
+
+                <filter string="Compañía"
+                        name="group_company"
+                        context="{'group_by': 'company_id'}"
+                        groups="base.group_multi_company"/>
             </search>
         </field>
     </record>

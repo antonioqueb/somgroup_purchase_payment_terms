@@ -749,6 +749,11 @@ class PurchaseOrderContainer(models.Model):
         required=True
     )
 
+    # Multiempresa: el contenedor pertenece a la compañía de su OC.
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='order_id.company_id',
+        store=True, readonly=True, index=True)
+
     purchase_payment_scope = fields.Selection(
         related='order_id.purchase_payment_scope',
         store=True,
@@ -802,6 +807,12 @@ class PurchasePaymentSchedule(models.Model):
         ondelete='cascade',
         required=True
     )
+
+    # Multiempresa: el hito pertenece a la compañía de su OC (diarios,
+    # cuentas, pagos y facturas se resuelven contra ella).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='order_id.company_id',
+        store=True, readonly=True, index=True)
 
     purchase_payment_scope = fields.Selection(
         related='order_id.purchase_payment_scope',
@@ -934,7 +945,7 @@ class PurchasePaymentSchedule(models.Model):
             paid = payment.currency_id._convert(
                 paid,
                 self.currency_id,
-                payment.company_id or self.env.company,
+                payment.company_id or self.order_id.company_id or self.env.company,
                 payment.date or fields.Date.today(),
             )
 
@@ -1074,7 +1085,7 @@ class PurchasePaymentSchedule(models.Model):
                 if usd_currency.rate:
                     rate = 1.0 / usd_currency.rate
 
-        def _amount_to_usd_mxn(amount, currency):
+        def _amount_to_usd_mxn(amount, currency, company=None):
             amount = amount or 0.0
 
             if not currency:
@@ -1087,10 +1098,11 @@ class PurchasePaymentSchedule(models.Model):
                 return amount, amount * rate
 
             try:
+                # Tasa de la compañía de la OC (no la activa del usuario).
                 mxn_amount = currency._convert(
                     amount,
                     mxn_currency,
-                    self.env.company,
+                    company or self.env.company,
                     today,
                 ) if mxn_currency else amount * rate
                 usd_amount = mxn_amount / rate if rate else 0.0
@@ -1130,7 +1142,8 @@ class PurchasePaymentSchedule(models.Model):
 
         for s in current_schedules:
             line = _schedule_to_dict(s)
-            usd_amount, mxn_amount = _amount_to_usd_mxn(s.amount, s.currency_id)
+            usd_amount, mxn_amount = _amount_to_usd_mxn(
+                s.amount, s.currency_id, s.order_id.company_id)
 
             if s.payment_type in ('advance', 'second_advance'):
                 advance_lines.append(line)
@@ -1201,7 +1214,8 @@ class PurchasePaymentSchedule(models.Model):
                     'total_mxn': 0,
                 }
 
-            usd_amount, mxn_amount = _amount_to_usd_mxn(s.amount, s.currency_id)
+            usd_amount, mxn_amount = _amount_to_usd_mxn(
+                s.amount, s.currency_id, s.order_id.company_id)
 
             month_groups[key]['lines'].append(_schedule_to_dict(s))
             month_groups[key]['total_usd'] += usd_amount
@@ -1231,8 +1245,24 @@ class PurchasePaymentSchedule(models.Model):
 
         return 'ANTICIPO {} — {} ({:.0f}%)'.format(order.name, type_label, self.percent)
 
-    def _get_expense_account(self, product=None):
+    def _som_company(self):
+        """Compañía del hito (la de su OC); respaldo: la activa del usuario."""
+        return self[:1].order_id.company_id or self.env.company
+
+    @api.model
+    def _som_company_domain(self, model, company):
+        """Dominio de compañía del modelo (account.account usa company_ids
+        en Odoo 18+; el resto company_id)."""
+        Model = self.env[model]
+        fname = 'company_ids' if 'company_ids' in Model._fields else 'company_id'
+        return [(fname, 'in', [company.id])]
+
+    def _get_expense_account(self, product=None, company=None):
+        # Cuentas y propiedades contables son POR COMPAÑÍA: se resuelven con
+        # la compañía de la OC, no con la activa del usuario.
+        company = company or self._som_company()
         if product:
+            product = product.with_company(company)
             account = (
                 product.property_account_expense_id
                 or product.categ_id.property_account_expense_categ_id
@@ -1240,20 +1270,25 @@ class PurchasePaymentSchedule(models.Model):
             if account:
                 return account
 
-        account = self.env['account.account'].search(
-            [('code', 'like', '1140'), ('active', '=', True)],
+        Account = self.env['account.account'].with_company(company)
+        company_domain = self._som_company_domain('account.account', company)
+
+        account = Account.search(
+            [('code', 'like', '1140'), ('active', '=', True)] + company_domain,
             limit=1
         )
         if account:
             return account
 
-        return self.env['account.account'].search(
-            [('account_type', 'in', ['expense', 'asset_current']), ('active', '=', True)],
+        return Account.search(
+            [('account_type', 'in', ['expense', 'asset_current']), ('active', '=', True)]
+            + company_domain,
             limit=1
         )
 
-    def _get_partner_payable_account(self, partner):
-        account = partner.property_account_payable_id
+    def _get_partner_payable_account(self, partner, company=None):
+        company = company or self._som_company()
+        account = partner.with_company(company).property_account_payable_id
 
         if account:
             _logger.info(
@@ -1262,10 +1297,11 @@ class PurchasePaymentSchedule(models.Model):
             )
             return account
 
-        account = self.env['account.account'].search([
+        Account = self.env['account.account'].with_company(company)
+        account = Account.search([
             ('account_type', '=', 'liability_payable'),
             ('active', '=', True),
-        ], limit=1)
+        ] + self._som_company_domain('account.account', company), limit=1)
 
         _logger.warning(
             '[SOMGROUP][PAYABLE] Partner %s has NO payable account, using fallback: %s',
@@ -1282,9 +1318,10 @@ class PurchasePaymentSchedule(models.Model):
             return payment.move_ids[0]
 
         if payment.name:
-            move = self.env['account.move'].search([
-                ('name', '=', payment.name),
-            ], limit=1)
+            move_domain = [('name', '=', payment.name)]
+            if payment.company_id:
+                move_domain.append(('company_id', '=', payment.company_id.id))
+            move = self.env['account.move'].search(move_domain, limit=1)
             if move:
                 return move
 
@@ -1360,9 +1397,11 @@ class PurchasePaymentSchedule(models.Model):
                 'Configure uno antes de registrar anticipos.'
             ))
 
-        payable_account = self._get_partner_payable_account(order.partner_id)
+        payable_account = self._get_partner_payable_account(
+            order.partner_id, order.company_id)
 
-        Payment = self.env['account.payment']
+        # El pago nace en la compañía de la OC (defaults de diario/moneda).
+        Payment = self.env['account.payment'].with_company(order.company_id)
 
         payment_vals = {
             'payment_type': 'outbound',
@@ -1424,6 +1463,7 @@ class PurchasePaymentSchedule(models.Model):
 
         vals = {
             'move_type': 'in_invoice',
+            'company_id': order.company_id.id,
             'partner_id': order.partner_id.id,
             'currency_id': order.currency_id.id,
             'invoice_date': fields.Date.today(),
@@ -1439,7 +1479,7 @@ class PurchasePaymentSchedule(models.Model):
 
         if po_lines:
             for pol in po_lines:
-                account = self._get_expense_account(pol.product_id)
+                account = self._get_expense_account(pol.product_id, order.company_id)
                 taxes = pol.tax_ids
 
                 if order.fiscal_position_id:
@@ -1459,13 +1499,15 @@ class PurchasePaymentSchedule(models.Model):
                 'name': 'Factura completa — {}'.format(order.name),
                 'quantity': 1.0,
                 'price_unit': order.amount_untaxed or order.amount_total,
-                'account_id': self._get_expense_account().id,
+                'account_id': self._get_expense_account(company=order.company_id).id,
                 'tax_ids': [(5, 0, 0)],
             }))
 
         vals['invoice_line_ids'] = invoice_lines
 
-        invoice = self.env['account.move'].create(vals)
+        # La factura nace en la compañía de la OC (diario de compras de esa
+        # compañía, no de la activa del usuario).
+        invoice = self.env['account.move'].with_company(order.company_id).create(vals)
 
         self.write({'schedule_invoice_id': invoice.id})
 
@@ -1490,7 +1532,8 @@ class PurchasePaymentSchedule(models.Model):
             return
 
         order = self.order_id
-        payable_account = self._get_partner_payable_account(order.partner_id)
+        payable_account = self._get_partner_payable_account(
+            order.partner_id, invoice.company_id or order.company_id)
 
         _logger.info(
             '[SOMGROUP][RECONCILE] Starting reconciliation for invoice %s (id=%s) | '
@@ -1527,6 +1570,9 @@ class PurchasePaymentSchedule(models.Model):
 
         payment_debit_lines = self.env['account.move.line'].search([
             ('partner_id', '=', order.partner_id.id),
+            # Solo apuntes de la compañía de la factura: jamás cruzar
+            # anticipos de otra compañía del mismo proveedor.
+            ('company_id', '=', (invoice.company_id or order.company_id).id),
             ('account_id.account_type', '=', 'liability_payable'),
             ('reconciled', '=', False),
             ('parent_state', '=', 'posted'),
@@ -1743,6 +1789,8 @@ class PurchasePaymentSchedule(models.Model):
                 'default_currency_id': order.currency_id.id,
                 'default_date': fields.Date.today(),
                 'default_purchase_schedule_id': self.id,
+                # El pago del anticipo nace en la compañía de la OC.
+                'default_company_id': order.company_id.id,
             }
 
             Payment = self.env['account.payment']
