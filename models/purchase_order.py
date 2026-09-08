@@ -129,10 +129,22 @@ class PurchaseOrder(models.Model):
         Currency = self.env['res.currency']
         for vals in vals_list:
             explicit = 'purchase_payment_scope' in vals or 'is_import_order' in vals
-            if explicit or not vals.get('currency_id'):
+            if explicit:
                 continue
             company = self.env['res.company'].browse(vals.get('company_id')) if vals.get('company_id') else self.env.company
-            if Currency.browse(vals['currency_id']) != company.currency_id:
+            currency = Currency.browse(vals['currency_id']) if vals.get('currency_id') else Currency
+            if not currency and vals.get('partner_id'):
+                # Sin divisa en los valores (To Be Purchased crea la OC solo
+                # con proveedor/compañía): el core la tomará del proveedor,
+                # igual que aquí. Antes este caso se saltaba, el tipo quedaba
+                # en Nacional por defecto y la validación reventaba con
+                # "Compra NACIONAL: la divisa debe ser MXN, no EUR".
+                partner = self.env['res.partner'].browse(
+                    vals['partner_id']).with_company(company)
+                currency = partner.property_purchase_currency_id
+            if not currency:
+                continue
+            if currency != company.currency_id:
                 vals['is_import_order'] = True
                 vals['purchase_payment_scope'] = 'import'
         return vals_list
