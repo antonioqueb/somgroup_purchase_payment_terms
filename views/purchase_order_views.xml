@@ -159,20 +159,20 @@
                             <button name="action_register_payment"
                                     string="💵 Pagar"
                                     type="object"
-                                    width="108px"
+                                    width="120px"
                                     class="btn btn-sm btn-success"
                                     invisible="state == 'paid'"/>
 
                             <button name="action_view_schedule_invoice"
                                     string="📄 Ver Doc."
                                     type="object"
-                                    width="108px"
+                                    width="120px"
                                     class="btn btn-sm btn-info"/>
 
                             <button name="action_view_payments"
                                     string="Ver Pagos"
                                     type="object"
-                                    width="108px"
+                                    width="120px"
                                     class="btn btn-sm btn-secondary"
                                     invisible="not payment_ids and not advance_payment_id"/>
                         </list>

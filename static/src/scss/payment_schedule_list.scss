@@ -14,20 +14,35 @@
     // sobrante; los botones de 75-95px se desbordaban sobre la columna
     // vecina y se veían encimados. Ancho garantizado por columna
     // (!important gana al style inline del parche de anchos).
+    // El tema (theme_list_modern) fija td.o_list_button a 32px, máximo
+    // 44px y 4px de relleno con un selector de mayor especificidad: todo
+    // con !important para ganarle, incluido el relleno (el "margen" que
+    // se ve alrededor de cada botón es el relleno de su celda).
     th.o_list_button,
     td.o_list_button {
-        width: 108px !important;
-        min-width: 108px !important;
+        width: 120px !important;
+        min-width: 120px !important;
         max-width: none !important;
+        padding: 6px 10px !important;
+        text-align: center !important;
+        vertical-align: middle !important;
+
+        > div {
+            flex-wrap: nowrap !important;
+            justify-content: center;
+            gap: 0 !important;
+        }
+
+        .btn {
+            margin: 0 !important;
+            white-space: nowrap !important;
+        }
     }
-    td.o_list_button .btn { margin: 0 !important; }
 
     // La celda de botones jamás se comprime: reserva el ancho de sus
     // tres botones y la tabla scrollea si hace falta.
-    .o_data_cell.o_list_button,
     .o_data_cell:has(> button.btn) {
         white-space: nowrap !important;
-        min-width: max-content !important;
         overflow: visible !important;
         padding: 4px 8px !important;
     }
