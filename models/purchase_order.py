@@ -423,8 +423,11 @@ class PurchaseOrder(models.Model):
         today = date.today()
 
         for rec in self:
+            # Un hito VENCIDO o PARCIAL sigue debiéndose: antes solo se miraba
+            # 'pending', y en cuanto el hito pasaba a 'overdue' la alerta roja
+            # de la OC desaparecía.
             pending = rec.payment_schedule_ids.filtered(
-                lambda l: l.state == 'pending' and l.due_date
+                lambda l: l.state in ('pending', 'partial', 'overdue') and l.due_date
             )
             overdue = pending.filtered(lambda l: l.due_date < today)
 
@@ -483,7 +486,7 @@ class PurchaseOrder(models.Model):
                 warnings.append('🔴 VENCIDO: Hay pagos vencidos en este pedido.')
             else:
                 upcoming = rec.payment_schedule_ids.filtered(
-                    lambda l: l.state == 'pending'
+                    lambda l: l.state in ('pending', 'partial')
                     and l.due_date
                     and today <= l.due_date <= today + timedelta(days=7)
                 )
@@ -628,12 +631,15 @@ class PurchaseOrder(models.Model):
                 'names': ', '.join(committed.mapped('display_name')),
             })
 
+        # Un hito VENCIDO sin pago también es limpio: antes se quedaba, y el
+        # return de abajo omitía el recálculo completo en silencio.
         pending_clean = self.payment_schedule_ids.filtered(
-            lambda l: l.state == 'pending'
+            lambda l: l.state in ('pending', 'overdue')
             and not l.payment_ids
             and not l.schedule_invoice_id
             and not l.advance_payment_id
         )
+        had_manual = any(l.is_manual or l.payment_reference for l in pending_clean)
         pending_clean.unlink()
 
         if self.payment_schedule_ids:
@@ -641,7 +647,14 @@ class PurchaseOrder(models.Model):
                 '[SOMGROUP] OC %s ya tiene hitos con factura/pago, omitiendo recalculo.',
                 self.name
             )
+            self.message_post(body=_(
+                '⚠ El calendario de pagos NO se recalculó: quedan hitos con '
+                'pago parcial o factura. Ajusta los hitos pendientes a mano.'))
             return
+        if had_manual:
+            self.message_post(body=_(
+                'ℹ Calendario de pagos regenerado: los hitos capturados a mano '
+                '(fecha/monto/referencia) se reemplazaron por los del término.'))
 
         vals_list = [{
             'order_id': self.id,
@@ -673,6 +686,12 @@ class PurchaseOrder(models.Model):
         return records
 
     def write(self, vals):
+        # Total ANTES del cambio: editar la descripción de una línea también
+        # escribe order_line y borraba/regeneraba el calendario (perdiendo
+        # ajustes manuales) sin que el total se moviera.
+        totals_before = {}
+        if 'order_line' in vals:
+            totals_before = {o.id: o.currency_id.round(o.amount_total or 0.0) for o in self}
         res = super().write(vals)
 
         # ---------------------------------------------------------
@@ -705,10 +724,13 @@ class PurchaseOrder(models.Model):
         }
 
         if trigger_fields.intersection(vals.keys()):
+            only_lines = trigger_fields.intersection(vals.keys()) == {'order_line'}
             for order in self.filtered(
                 lambda o: o.payment_term_id
                 and o.payment_term_id.somgroup_term_type != 'standard'
             ):
+                if only_lines and totals_before.get(order.id) == order.currency_id.round(order.amount_total or 0.0):
+                    continue
                 has_committed = any(
                     s.schedule_invoice_id or s.payment_ids or s.advance_payment_id
                     for s in order.payment_schedule_ids
@@ -913,10 +935,18 @@ class PurchasePaymentSchedule(models.Model):
 
     remaining_amount = fields.Monetary(
         string='Saldo Pendiente',
+        compute='_compute_remaining_amount',
         store=True,
-        default=0.0,
-        currency_field='currency_id'
+        currency_field='currency_id',
+        help='Monto del hito menos lo pagado. Antes nacía en 0 y solo se '
+             'actualizaba al sincronizar pagos: un hito pendiente mostraba '
+             'Saldo $0.00.',
     )
+
+    @api.depends('amount', 'paid_amount')
+    def _compute_remaining_amount(self):
+        for rec in self:
+            rec.remaining_amount = max((rec.amount or 0.0) - (rec.paid_amount or 0.0), 0.0)
 
     paid_date = fields.Date(string='Fecha Pago Real', store=True)
 
@@ -939,6 +969,19 @@ class PurchasePaymentSchedule(models.Model):
             self.percent = round((self.amount or 0.0) / total * 100.0, 2)
     payment_reference = fields.Char(string='Referencia Pago / SPEI')
 
+    def _som_payment_amount_in_schedule_currency(self, payment):
+        """Monto del pago en la moneda del hito. Un balance en USD pagado
+        con un pago en MXN sumaba pesos como dólares."""
+        self.ensure_one()
+        paid = payment.amount or 0.0
+        if payment.currency_id and self.currency_id and payment.currency_id != self.currency_id:
+            paid = payment.currency_id._convert(
+                paid, self.currency_id,
+                payment.company_id or self.order_id.company_id or self.env.company,
+                payment.date or fields.Date.today(),
+            )
+        return paid
+
     def _somgroup_advance_paid_vals(self, payment):
         """Vals para registrar un anticipo con el MONTO REAL del pago.
 
@@ -948,18 +991,7 @@ class PurchasePaymentSchedule(models.Model):
         """
         self.ensure_one()
 
-        paid = payment.amount or 0.0
-        if (
-            payment.currency_id
-            and self.currency_id
-            and payment.currency_id != self.currency_id
-        ):
-            paid = payment.currency_id._convert(
-                paid,
-                self.currency_id,
-                payment.company_id or self.order_id.company_id or self.env.company,
-                payment.date or fields.Date.today(),
-            )
+        paid = self._som_payment_amount_in_schedule_currency(payment)
 
         paid = min(paid, self.amount or 0.0)
         rounding = (self.currency_id and self.currency_id.rounding) or 0.01
@@ -970,7 +1002,6 @@ class PurchasePaymentSchedule(models.Model):
         return {
             'advance_payment_id': payment.id,
             'paid_amount': paid,
-            'remaining_amount': max((self.amount or 0.0) - paid, 0.0),
             'state': 'paid' if fully_paid else 'partial',
             'paid_date': payment.date or fields.Date.today(),
         }
@@ -1378,7 +1409,13 @@ class PurchasePaymentSchedule(models.Model):
         if self.payment_type in ('advance', 'second_advance'):
             if self.advance_payment_id:
                 return self.advance_payment_id
-            return self._create_advance_payment()
+            # Jamás crear y POSTEAR un pago sin que el usuario elija diario,
+            # fecha y monto: el anticipo se registra con el botón Pagar
+            # (formulario de pago). _create_advance_payment queda solo como
+            # utilería explícita.
+            raise UserError(_(
+                'Este anticipo aún no tiene pago registrado. Use "Pagar" para '
+                'capturarlo (diario, fecha y monto).'))
 
         if self.schedule_invoice_id:
             return self.schedule_invoice_id
@@ -1451,7 +1488,6 @@ class PurchasePaymentSchedule(models.Model):
         self.write({
             'advance_payment_id': payment.id,
             'paid_amount': self.amount,
-            'remaining_amount': 0.0,
             'state': 'paid',
             'paid_date': fields.Date.today(),
         })
@@ -1478,7 +1514,8 @@ class PurchasePaymentSchedule(models.Model):
             'company_id': order.company_id.id,
             'partner_id': order.partner_id.id,
             'currency_id': order.currency_id.id,
-            'invoice_date': fields.Date.today(),
+            # Fecha de la factura del proveedor si ya se capturó; si no, hoy.
+            'invoice_date': order.supplier_invoice_date or fields.Date.today(),
             'purchase_id': order.id,
             'narration': 'OC: {} | Factura completa — anticipos se reconcilian automáticamente'.format(
                 order.name
@@ -1497,7 +1534,7 @@ class PurchasePaymentSchedule(models.Model):
                 if order.fiscal_position_id:
                     taxes = order.fiscal_position_id.map_tax(taxes)
 
-                invoice_lines.append((0, 0, {
+                line_vals = {
                     'name': pol.name or pol.product_id.name,
                     'product_id': pol.product_id.id,
                     'quantity': pol.product_qty,
@@ -1505,7 +1542,14 @@ class PurchasePaymentSchedule(models.Model):
                     'account_id': account.id if account else False,
                     'purchase_line_id': pol.id,
                     'tax_ids': [(6, 0, taxes.ids)] if taxes else [(5, 0, 0)],
-                }))
+                }
+                # Sin el descuento de la línea la factura no cuadraba con la
+                # OC (y con el calendario, que usa amount_total).
+                if 'discount' in pol._fields and pol.discount:
+                    line_vals['discount'] = pol.discount
+                if 'product_uom_id' in self.env['account.move.line']._fields and pol.product_uom_id:
+                    line_vals['product_uom_id'] = pol.product_uom_id.id
+                invoice_lines.append((0, 0, line_vals))
         else:
             invoice_lines.append((0, 0, {
                 'name': 'Factura completa — {}'.format(order.name),
@@ -1579,6 +1623,14 @@ class PurchasePaymentSchedule(models.Model):
         if expected_advance_amount <= 0:
             _logger.info('[SOMGROUP][RECONCILE] No confirmed advances. Nothing to reconcile.')
             return
+
+        # amount_residual de los apuntes está en moneda de COMPAÑÍA; el hito
+        # en la de la OC (USD en importación). Se compara en la misma moneda.
+        company = invoice.company_id or order.company_id
+        if order.currency_id and company.currency_id and order.currency_id != company.currency_id:
+            expected_advance_amount = order.currency_id._convert(
+                expected_advance_amount, company.currency_id, company,
+                invoice.invoice_date or invoice.date or fields.Date.today())
 
         payment_debit_lines = self.env['account.move.line'].search([
             ('partner_id', '=', order.partner_id.id),
@@ -1696,11 +1748,24 @@ class PurchasePaymentSchedule(models.Model):
 
             direct_payments = direct_payments_db | extra_for_order
 
+            # Pagos sueltos del proveedor: SOLO si referencian esta OC. Antes
+            # cualquier pago al mismo proveedor (otra OC) se aplicaba en
+            # cascada a estos hitos y los marcaba pagados hasta el siguiente
+            # resync, que los devolvía a pendiente (estado oscilante).
+            def _mentions_order(p):
+                text = ' '.join(str(getattr(p, f, '') or '') for f in ('memo', 'ref', 'payment_reference'))
+                return bool(order.name) and order.name.upper() in text.upper()
+
             loose_extra = extra_payments.filtered(
-                lambda p: not p.purchase_schedule_id and p.partner_id == order.partner_id
+                lambda p: not p.purchase_schedule_id
+                and p.partner_id == order.partner_id
+                and _mentions_order(p)
             )
 
-            remaining_cascade = sum(loose_extra.mapped('amount'))
+            first_sched = order_schedules[:1]
+            remaining_cascade = sum(
+                first_sched._som_payment_amount_in_schedule_currency(p) for p in loose_extra
+            )
 
             for schedule in order_schedules:
                 if (
@@ -1721,14 +1786,14 @@ class PurchasePaymentSchedule(models.Model):
                     lambda p: p.purchase_schedule_id == schedule
                 )
 
-                direct_amount = sum(direct.mapped('amount'))
+                direct_amount = sum(schedule._som_payment_amount_in_schedule_currency(p) for p in direct)
 
                 # DEDUP: un pago hecho por el wizard queda vinculado al hito
                 # (direct) Y reconciliado a su factura (inv). Sumarlo en ambos
                 # lados marcaba pagado completo un hito pagado a la mitad.
                 inv_payments = self._get_payments_for_invoice(schedule.schedule_invoice_id)
                 inv_payments = inv_payments - direct
-                inv_amount = sum(inv_payments.mapped('amount'))
+                inv_amount = sum(schedule._som_payment_amount_in_schedule_currency(p) for p in inv_payments)
 
                 reconciled_advance_amount = 0.0
 
@@ -1774,7 +1839,6 @@ class PurchasePaymentSchedule(models.Model):
 
                 write_vals = {
                     'paid_amount': schedule_paid,
-                    'remaining_amount': max(0.0, (schedule.amount or 0.0) - schedule_paid),
                     'state': new_state,
                 }
 
@@ -1839,7 +1903,6 @@ class PurchasePaymentSchedule(models.Model):
         if invoice.payment_state == 'paid':
             self.sudo().write({
                 'paid_amount': self.amount,
-                'remaining_amount': 0.0,
                 'state': 'paid',
                 'paid_date': fields.Date.today(),
             })
@@ -1868,22 +1931,31 @@ class PurchasePaymentSchedule(models.Model):
             if rec.state != 'paid':
                 rec.write({
                     'paid_amount': rec.amount,
-                    'remaining_amount': 0.0,
                     'paid_date': rec.paid_date or date.today(),
                     'state': 'paid',
                 })
 
+    @api.model
     def action_mark_overdue(self):
+        """Marca VENCIDOS los hitos sin pagar con fecha pasada y devuelve a
+        PENDIENTE los vencidos cuya fecha se movió al futuro. Lo corre el
+        cron diario (antes solo existía como acción manual y el estado
+        'Vencido' dependía de que alguien la ejecutara)."""
         from datetime import date
 
         today = date.today()
 
-        for rec in self.search([
-            ('state', 'in', ['pending', 'partial']),
+        self.search([
+            ('state', '=', 'pending'),
             ('due_date', '<', today),
             ('due_date', '!=', False),
-        ]):
-            rec.write({'state': 'overdue'})
+            ('order_id.state', 'not in', ('cancel',)),
+        ]).write({'state': 'overdue'})
+
+        self.search([
+            ('state', '=', 'overdue'),
+            '|', ('due_date', '>=', today), ('due_date', '=', False),
+        ]).write({'state': 'pending'})
 
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 

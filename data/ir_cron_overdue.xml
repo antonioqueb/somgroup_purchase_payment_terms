@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ir_cron_som_payment_schedule_overdue" model="ir.cron" forcecreate="True">
+        <field name="name">SOMGROUP: hitos de pago vencidos</field>
+        <field name="model_id" ref="model_purchase_payment_schedule"/>
+        <field name="state">code</field>
+        <field name="code">model.action_mark_overdue()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>
