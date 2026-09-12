@@ -179,7 +179,10 @@ class AccountPaymentTerm(models.Model):
             return purchase_order.supplier_invoice_date
         if 'effective_date' in purchase_order._fields and purchase_order.effective_date:
             return purchase_order.effective_date
-        return self._get_order_date(purchase_order)
+        # SIN caer a la fecha de la OC: antes, sin factura capturada, el
+        # vencimiento "a N días de factura" se calculaba desde la fecha de
+        # la OC y se mostraba como calculado, adelantando el pago semanas.
+        return False
 
     def _get_national_base_date(self, purchase_order, base):
         if hasattr(purchase_order, '_get_national_base_date'):
@@ -266,7 +269,9 @@ class AccountPaymentTerm(models.Model):
                 'percent': 100.0,
                 'amount': amount,
                 'due_date': due_date,
-                'note': f'{self.balance_days} días después de fecha de factura.',
+                'note': f'{self.balance_days} días después de fecha de factura.' + (
+                    '' if due_date else ' Capture Fecha Factura Proveedor para calcular vencimiento.'
+                ),
                 'is_manual': not bool(due_date),
             })
 
@@ -352,7 +357,9 @@ class AccountPaymentTerm(models.Model):
                 'percent': balance_pct,
                 'amount': round(amount * balance_pct / 100, 2),
                 'due_date': due_date,
-                'note': f'Balance {balance_pct:.0f}% a {self.balance_days} días de fecha factura.',
+                'note': f'Balance {balance_pct:.0f}% a {self.balance_days} días de fecha factura.' + (
+                    '' if due_date else ' Capture Fecha Factura Proveedor para calcular vencimiento.'
+                ),
                 'is_manual': not bool(due_date),
             })
 
@@ -522,4 +529,22 @@ class AccountPaymentTerm(models.Model):
                 'is_manual': False,
             })
 
+        return self._som_close_schedule_total(result, purchase_order, amount)
+
+    def _som_close_schedule_total(self, result, purchase_order, amount):
+        """El calendario debe CERRAR contra el total de la OC. Cada tramo se
+        redondeaba por separado (anticipo 33.33 % y balance 66.67 % de
+        100.01 → 33.33 + 66.68 ≠ 100.01): el ÚLTIMO balance absorbe el
+        residuo de redondeo, en la moneda de la OC."""
+        if not result:
+            return result
+        currency = purchase_order.currency_id
+        rnd = currency.round if currency else (lambda v: round(v, 2))
+        for line in result:
+            line['amount'] = rnd(line.get('amount') or 0.0)
+        balances = [l for l in result if l.get('type') == 'balance']
+        if balances:
+            target = balances[-1]
+            others = sum(l['amount'] for l in result if l is not target)
+            target['amount'] = rnd(max((amount or 0.0) - others, 0.0))
         return result
